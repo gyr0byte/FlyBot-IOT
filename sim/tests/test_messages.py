@@ -170,3 +170,17 @@ def test_lockstep_results_leave_latency_empty():
     sim, _ = run_sim(8, brain=brain, lockstep=True)
     r = sim.results()
     assert r["rtt_median_ms"] is None and r["crtt_median_ms"] is None
+
+
+def test_thrown_object_triggers_escape_through_the_whole_chain():
+    """World -> ultrasonic -> distance filter -> edge looming detector -> escape event."""
+    def brain(sim, seq):   # a brain that keeps the robot standing still, facing open space
+        sim.link.send("cmd/motor", {"v": 1, "seq": seq, "up": sim.t_ms, "l": 0.0, "r": 0.0, "ttl": 300, "rs": seq})
+        if 9000 <= sim.t_ms < 9050:     # brain() runs on sensors ticks only (every 50 ms)
+            sim.launch_looming()
+
+    sim, link = run_sim(11, scenario="night", brain=brain)   # night: no obstacles, open arena
+    ev = [m for m in published(link, "events") if m["e"] == "escape"]
+    assert len(ev) == 1
+    assert 0 < ev[0]["ttc"] < 700 and ev[0]["d"] < 80
+    assert sim.robot.path_length > 0.03          # it actually backed off and turned
