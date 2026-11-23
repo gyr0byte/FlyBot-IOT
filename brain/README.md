@@ -114,6 +114,115 @@ physics clock, so "5 ms" means within one step. There was one 355 ms outlier.
 The remaining failures are mostly a single forward ultrasonic sensor not seeing obstacles beside
 the robot (`obstacles`), and starts far from the plume where the signal stays in the noise.
 
+## Circuit file format (version 1)
+
+Circuits are **data, not code** (plan, Phase 5 design rule). The network engine
+(`flybot_brain/network/engine.py`) runs any circuit folder that follows this format: the designed
+circuit and, from step 5.13, the FlyWire-derived one. The config chooses which.
+`flybot_brain/network/circuit.py` loads and validates a folder, and rejects anything that breaks a
+rule below with a precise message. Generator scripts write circuits with `write_circuit()`,
+which reloads what it wrote, so a generator can never produce an invalid circuit.
+
+```
+<circuit>/
+  manifest.yaml     identity, source, inputs, outputs, projections
+  groups.csv        one row per neuron group
+  connections.csv   one row per connection (sparse)
+  neurons.csv       optional: one row per neuron
+  modulation.csv    optional: which modulator neurons gate which plastic synapses
+  NOTICE            data-derived circuits: licence and required citations
+```
+
+### `manifest.yaml`
+
+```yaml
+format: 1
+name: designed
+description: ...
+source: {kind: designed}            # or {kind: dataset, dataset: "FlyWire 783", licence: CC BY-NC 4.0, citations: [...]}
+generator: {script: brain/tools/make_designed_circuit.py, seed: 1}
+designed_parts: "which parts are designed rather than data"
+inputs:                              # signal -> Poisson input group
+  odour_left: {group: rl, encoding: poisson_rate, base_hz: 2.0, gain_hz: 150.0}
+outputs:                             # readout name -> groups
+  steer_left: [pl]
+projections:                         # one per pre -> post group pair
+  - {name: rl_pl, pre: rl, post: pl, scale: 0.05}
+  - name: kc_ma
+    pre: kc
+    post: ma
+    scale: 0.02
+    plastic: true
+    plasticity: {rule: three_factor, lr: 0.01, tau_elig_ms: 1000, w_min: 0, w_max: 30}
+neurons: neurons.csv                 # optional
+modulation: modulation.csv           # optional
+```
+
+- **`scale`** (> 0) converts each connection's `weight` into synaptic input: designed strength, or a
+  FlyWire synapse count. A pathway can be retuned without touching `connections.csv`.
+- **`plastic` / `plasticity`:** a plastic projection must give `rule` (only `three_factor` in v1),
+  `lr` > 0, `tau_elig_ms` > 0 and `w_min` ≤ `w_max`, in the same units as `weight`. Its initial
+  weights must lie within those bounds, and it may not contain `mod` connections. The spec is
+  checked now and used from step 5.6.
+- **Inputs** bind to `poisson` groups. Rate = `base_hz + gain_hz × value`, so odour 0–1 maps to a firing rate.
+
+### `groups.csv`
+
+`group,size,model,tau_m_ms,v_thresh,v_reset,t_ref_ms,tau_syn_ms,bias,noise,side,spk_key,lesion_target`
+
+- **`model`:** `lif` or `poisson`. Poisson input groups leave the LIF parameters empty and may not
+  receive connections.
+- **Neuron model:** leaky integrate-and-fire on a dimensionless voltage (rest 0), with an exponential
+  synaptic current and 1 ms steps.
+- **`side`:** `L`, `R` or `-`.
+- **`spk_key`:** must be a contract `brain/state.spk` key. Several groups may share one; they are summed.
+- **`lesion_target`:** a contract lesion target (used in step 5.10).
+
+### `connections.csv`
+
+`projection,pre,post,weight,type`
+
+- **`pre` and `post`** are indices inside the projection's groups. Each (pre, post) appears at most once.
+- **`weight`** is ≥ 0, in raw units (multiplied by the projection's `scale`).
+- **`type`** is `exc` (+), `inh` (−) or `mod`. It follows the presynaptic neuron (Dale's law): the
+  loader rejects a neuron with two types.
+- **`mod` connections** (dopamine, serotonin) are **not membrane input**. The engine keeps them apart
+  for the modulation system and ignores them until step 5.6.
+
+### `neurons.csv` (optional)
+
+`group,index,external_id,cell_type,compartment`
+
+Per-neuron identity: for FlyWire, the root id, cell type and mushroom body compartment.
+
+### `modulation.csv` (optional)
+
+`modulator_group,modulator_index,target_group,target_from,target_to,compartment`
+
+Says which modulator neuron gates the plastic synapses onto which target neurons:
+- give either a half-open index range `[target_from, target_to)`, or a `compartment` label from
+  `neurons.csv` (FlyWire: dopamine neuron → MBON compartment);
+- the target group must be the post group of a plastic projection.
+
+### Engine and performance
+
+- **How it runs:** each control tick integrates `dt_ms` 1 ms steps, where `dt_ms` is the robot-time
+  step from contract §7.1. That is 0 on a reboot tick and at most 100 ms after a gap.
+- **Spike propagation:** connections are merged into one edge list sorted by presynaptic neuron, so
+  a step only touches the edges of neurons that spiked.
+- **Randomness** (Poisson inputs, noise) is seeded and re-seeded on reset.
+- **Spike counts per group** feed `brain/state.spk`.
+
+**Performance** on a synthetic circuit at FlyWire scale (3,054 neurons, 24,240 connections,
+`network/synthetic.py`), measured on the development laptop:
+
+| Activity | 50 ms tick, median | p95 | max |
+|---|---|---|---|
+| sparse KCs (~1.5 Hz) | 3.5 ms | 3.9 ms | 7.3 ms |
+| busier KCs (~5 Hz) | 4.5 ms | 5.0 ms | 5.6 ms |
+
+The budget is 50 ms per tick; the target was under 10 ms. `tests/test_network.py` re-checks it on every run.
+
 ## Tests
 
 From `brain\`: `.venv\Scripts\python -m pytest`. That runs 141 tests:
