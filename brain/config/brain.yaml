@@ -1,0 +1,36 @@
+# FlyBot brain configuration. Anything not listed uses the defaults in flybot_brain/config.py.
+# Unknown keys are an error. Times in ms are robot time unless they say wall.
+
+controller: baseline        # baseline | neural (neural is a stub until Phase 5)
+seed: 1                     # random seed (baseline wandering); re-applied on reset
+
+experiment:
+  reset_on_reboot: false    # true: reset internal state whenever the robot reboots (independent trials)
+
+timing:
+  ttl_ms: 300               # cmd/motor time-to-live
+  state_every_ms: 200       # brain/state at 5 Hz robot time (contract section 3.10)
+  sleep_repeat_ms: 5000     # cmd/sleep repeat while asleep (contract section 7)
+  stale_ms: 250             # wall clock: no sensors for this long -> sens stale (section 6 rule 11)
+  status_every_s: 10        # wall clock: brain/status heartbeat
+
+persistence:
+  dir: .local/brain/snapshots   # relative to the repo root (git-ignored, on D:)
+  load_on_start: true           # load snapshot "latest" at start-up if it exists
+  save_on_exit: true            # save snapshot "latest" on a clean shutdown
+
+baseline:                   # Braitenberg-style controller; see flybot_brain/controllers/baseline.py
+  smooth_alpha: 0.35        # EMA on the odour inputs, per tick
+  detect: 0.02              # summed odour above this = there is a signal to follow
+  arrive: 0.55              # max(left, right) above this = at the source: stop ("eat")
+  leave_ratio: 0.7          # ... and stay there until it drops below arrive * leave_ratio
+  speed: 0.55               # forward command while seeking
+  turn_gain: 0.9            # turn command per unit of normalised left/right difference
+  diff_deadband: 0.03       # ignore normalised differences smaller than this
+  slow_cm: 45               # obstacle closer than this: slow down ...
+  avoid_cm: 22              # ... closer than this: turn away on the spot
+  avoid_turn: 0.55          # turn command while avoiding
+  avoid_ms: 700             # keep turning this long once triggered
+  wander_speed: 0.45        # forward command with no odour signal
+  wander_curve: 0.25        # max left/right difference while wandering
+  wander_change_ms: 1500    # pick a new random curve this often

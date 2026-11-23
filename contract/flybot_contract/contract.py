@@ -79,8 +79,11 @@ class Outbox:
         return msg
 
 
-def offline_status(contract: Contract, up_at_connect: int) -> dict:
-    """The robot's last will (contract section 3.3): fixed at connect time, seq 0."""
-    msg = {"v": contract.versions["status"], "seq": 0, "up": int(up_at_connect), "st": "offline"}
-    contract.validate("status", msg)
+def offline_status(contract: Contract, up_at_connect: int, name: str = "status") -> dict:
+    """A last-will payload, fixed at connect time with seq 0: the robot's `status` (section 3.3)
+    or the brain's `brain/status` (section 3.9)."""
+    if name not in ("status", "brain/status"):
+        raise ValueError(f"no last-will form for {name}")
+    msg = {"v": contract.versions[name], "seq": 0, "up": int(up_at_connect), "st": "offline"}
+    contract.validate(name, msg)
     return msg
