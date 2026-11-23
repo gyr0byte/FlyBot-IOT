@@ -5,13 +5,13 @@
   "description": "Brain internal state and decision, QoS 0, not retained, 5 Hz. Contract section 3.10.",
   "type": "object",
   "properties": {
-    "v": { "const": 3, "description": "Schema version." },
+    "v": { "const": 4, "description": "Schema version." },
     "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number." },
     "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." },
     "hun": { "type": "number", "minimum": 0, "maximum": 1, "description": "Hunger 0-1 (2 dp)." },
     "fear": { "type": "number", "minimum": 0, "maximum": 1, "description": "Fear 0-1 (2 dp)." },
     "slp": { "type": "boolean", "description": "Brain is asleep." },
-    "dec": { "enum": ["seek", "explore", "approach", "avoid", "freeze", "eat", "sleep", "stale", "paused"], "description": "Current decision. stale = sensor data older than 250 ms (or none yet): the brain is NOT publishing cmd/motor. paused = mode is not auto." },
+    "dec": { "enum": ["seek", "explore", "approach", "avoid", "freeze", "eat", "sleep", "stale", "paused", "warmup"], "description": "Current decision. stale = sensor data older than 250 ms (or none yet): the brain is NOT publishing cmd/motor. paused = mode is not auto. warmup = odour still null (MQ-3 warm-up): no cmd/motor, robot holds still in boot." },
     "why": {
       "type": "array",
       "maxItems": 3,
@@ -68,14 +68,14 @@
   "additionalProperties": false,
   "examples": [
     {
-      "v": 3, "seq": 2210, "up": 442100, "hun": 0.63, "fear": 0.08, "slp": false, "dec": "seek",
+      "v": 4, "seq": 2210, "up": 442100, "hun": 0.63, "fear": 0.08, "slp": false, "dec": "seek",
       "why": ["odour_l", "hunger"],
       "spk": { "rl": 41, "rr": 22, "pl": 18, "pr": 7, "ln": 12, "kc": 96, "apl": 3, "ma": 5, "mv": 1 },
       "les": [], "pref": { "odr": 0.4, "lt": -0.6 }, "rs": 1042,
       "ack": { "src": "dash-3fa2c1", "seq": 12, "ok": true }
     },
     {
-      "v": 3, "seq": 0, "up": 210, "hun": 0.0, "fear": 0.0, "slp": false, "dec": "stale",
+      "v": 4, "seq": 0, "up": 210, "hun": 0.0, "fear": 0.0, "slp": false, "dec": "stale",
       "why": [], "spk": {}, "les": [], "pref": {}, "rs": null, "ack": null
     }
   ]

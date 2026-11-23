@@ -411,3 +411,15 @@ def test_object_suddenly_appearing_is_not_counted_as_approach():
     h.run(40)
     h.e.on_distance(56.0, 56.0, h.now)          # now a real approach (100 cm/s)
     assert h.e.loom_hits == 1 and h.e.state == CLOUD
+
+
+def test_boot_ignores_motion_commands_and_has_no_watchdog():
+    h = Harness()
+    h.e.on_link(True, 0)
+    h.mode("auto", retained=True)
+    h.motor(1, 1, ttl=1000)
+    h.manual(1, 1)
+    h.sleep(True)
+    out = h.run(3000)                 # odour not ready yet: still booting, 3 s without commands
+    assert h.e.state == BOOT and out == (0.0, 0.0)
+    assert "fallback_on" not in h.kinds()

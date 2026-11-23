@@ -1,6 +1,6 @@
 # FlyBot MQTT message contract
 
-**Contract revision:** 4 (2026-11-23). Each message type's current `v` is in the §1 table.
+**Contract revision:** 5 (2026-11-23). Each message type's current `v` is in the §1 table.
 
 This is the source of truth for every message between the FlyBot programs. Programs only
 talk through MQTT. If code and this document disagree, the code is wrong. The
@@ -38,7 +38,7 @@ program and uses the `brain` connection.
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
 | `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 2 |
 | `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 2 |
-| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 3 |
+| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 4 |
 | `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` | 1 |
 | `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 3 |
 | `brain/sleep` | dashboard, bot | brain only | 1 | no | on user action | `brain-sleep` | 2 |
@@ -326,7 +326,7 @@ Brain → dashboard, bot. QoS 0, not retained, 5 Hz.
 | `hun` | number | – | 0.00 … 1.00 | 2 | Hunger. |
 | `fear` | number | – | 0.00 … 1.00 | 2 | Fear. |
 | `slp` | boolean | – | | – | Brain is asleep. |
-| `dec` | string | – | `seek`, `explore`, `approach`, `avoid`, `freeze`, `eat`, `sleep`, `stale`, `paused` | – | Current decision. `stale` = sensor data older than 250 ms (or none yet). The brain is **not** publishing `cmd/motor`, and the robot's watchdog takes over. `paused` = mode is not `auto`. |
+| `dec` | string | – | `seek`, `explore`, `approach`, `avoid`, `freeze`, `eat`, `sleep`, `stale`, `paused`, `warmup` | – | Current decision. `stale` = sensor data older than 250 ms (or none yet): the brain is **not** publishing `cmd/motor`, and the robot's watchdog takes over. `paused` = mode is not `auto`. `warmup` = `sensors` are arriving but the odour values are still `null` (MQ-3 warm-up and calibration): the brain sends no `cmd/motor`, because the robot holds itself still in `boot` (§5). `sens` stays `ok`. |
 | `why` | array of string | – | 0–3 items, each `^[a-z][a-z0-9_]{0,15}$` | – | Main contributors to the decision, strongest first (e.g. `odour_l`, `hunger`, `fear`, `avoid`). |
 | `spk` | object | spikes | keys below, each integer 0 … 100000 | 0 | Spikes per neuron group in the last 200 ms. A group that is not built yet is left out. Empty `{}` with the baseline controller. |
 | `les` | array of string | – | unique, from the lesion targets in §3.12 | – | Groups currently switched off. |
@@ -339,13 +339,13 @@ Brain → dashboard, bot. QoS 0, not retained, 5 Hz.
 `ma`, `mv` output approach/avoid · `dp`, `dn` dopamine reward/punish.
 
 ```json
-{"v":3,"seq":2210,"up":442100,"hun":0.63,"fear":0.08,"slp":false,"dec":"seek","why":["odour_l","hunger"],"spk":{"rl":41,"rr":22,"pl":18,"pr":7,"ln":12,"kc":96,"apl":3,"ma":5,"mv":1},"les":[],"pref":{"odr":0.4,"lt":-0.6},"rs":1042,"ack":{"src":"dash-3fa2c1","seq":12,"ok":true}}
+{"v":4,"seq":2210,"up":442100,"hun":0.63,"fear":0.08,"slp":false,"dec":"seek","why":["odour_l","hunger"],"spk":{"rl":41,"rr":22,"pl":18,"pr":7,"ln":12,"kc":96,"apl":3,"ma":5,"mv":1},"les":[],"pref":{"odr":0.4,"lt":-0.6},"rs":1042,"ack":{"src":"dash-3fa2c1","seq":12,"ok":true}}
 ```
 About 280 bytes at 5 Hz.
 
 At startup, before the first sensor message and before any network layer exists:
 ```json
-{"v":3,"seq":0,"up":210,"hun":0.0,"fear":0.0,"slp":false,"dec":"stale","why":[],"spk":{},"les":[],"pref":{},"rs":null,"ack":null}
+{"v":4,"seq":0,"up":210,"hun":0.0,"fear":0.0,"slp":false,"dec":"stale","why":[],"spk":{},"les":[],"pref":{},"rs":null,"ack":null}
 ```
 
 ### 3.11 `flybot/01/brain/weights`
@@ -582,6 +582,10 @@ the firmware and the simulator must implement them exactly.
 | `manual` | ignored | obeyed | ignored | on | stop and wait |
 | `estop` | ignored | ignored | ignored | off, motors disabled | stay stopped |
 
+- **Boot** holds the robot still. In `boot` the motors are off, `cmd/motor`, `cmd/manual` and `cmd/sleep`
+  are ignored and there is no watchdog. The robot leaves `boot` only after odour warm-up and calibration
+  have finished and the mode is decided (§5.1 (1)). The odour baseline is therefore captured with the
+  robot standing still. During warm-up the brain reports `dec: "warmup"` and sends no `cmd/motor`.
 - **Emergency stop** latches until a `cmd/mode` of `auto` or `manual` arrives. Because
   `cmd/mode` is retained and only the dashboard and bot can publish it, nothing else can clear an e-stop.
 - **Sleep** (`auto` mode + `cmd/sleep s:true`): see §5.1 (3). The robot wakes on `s:false`, when
@@ -665,6 +669,8 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
     `brain/status` at once on every change. Normal publishing resumes on the first fresh message.
     Because the brain ticks only on `sensors` messages (§7.1), it is silent on `cmd/motor` whenever
     none arrive. The 250 ms check is a wall-clock link-health check and only drives the reporting.
+    Odour values of `null` during MQ-3 warm-up are **not** stale: `sensors` are arriving. The brain reports
+    `dec: "warmup"` with `sens: "ok"` and sends no `cmd/motor` (the robot holds still in `boot`, §5).
 12. **Robot: silence is a signal.** The robot does not expect the brain to say "stop". An
     absence of valid `cmd/motor` is handled only by the time-to-live and the 500 ms watchdog (§5).
 13. **New and idle senders.** The first message from a sender name not seen before starts a new
@@ -772,3 +778,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. Stale sensor data: the brain stops publishing `cmd/motor` instead of sending stop commands, so the robot's watchdog moves it to fallback. `brain/status` → `v = 2`: new `sens` field (`ok`/`stale`/`none`). New §5.1 makes four robot defaults defined behaviour: start in `auto` if no mode arrives within 2 s, stop (not wander) in `manual` with no commands, reflexes off while asleep, leave fallback after 3 consecutive valid commands. |
 | 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. `cmd/mode` → `v = 2`: `src` is `bot` or a tab name. `reward` → `v = 2`: `src` is `btn`, `bot` or a tab name. `brain/sleep` → `v = 2`: `src` is `bot` or a tab name. `brain/control` → `v = 3`: required `src` (tab name). `brain/state` → `v = 3`: `ack` has `src` again (tab name). §2 sender-name table; §6 streams are topic + sender name, new rule 13 (new and idle senders); dashboard client ID reuses the tab name. |
 | 4 | 2026-11-23 | Time base (§7.1): rates and durations are in robot time (`up`); the brain ticks once per `sensors` message and advances its dynamics by robot time only (monotonic, reboot step = 0, gaps over 500 ms capped at 100 ms); lockstep simulation; latency figures only from real-time runs. No payload or `v` changes. |
+| 5 | 2026-11-23 | MQ-3 warm-up: `brain/state` → `v = 4` with new `dec` value `warmup` (odour `null`, brain sends no `cmd/motor`, `sens` stays `ok`). §5 states the boot hold explicitly: motors off, commands ignored, no watchdog, leave `boot` only after odour calibration. |
