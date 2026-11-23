@@ -84,7 +84,7 @@ in `firmware/include/secrets.h` (git-ignored).
 | 2 | Local Mosquitto broker with users and ACL | ✅ done (Mosquitto 2.1.4, ACL test 182/182) |
 | 3 | Simulator | ✅ done (lockstep about 20x real time, 94 tests) |
 | 4 | Brain skeleton + rule-based baseline | ✅ done (baseline reaches the source in 86% / 62% / 98% of trials, see [brain/README.md](brain/README.md)) |
-| 5 | Neural brain | next |
+| 5 | Neural brain | in progress: 5.1–5.4 done (neural steering: 92% / 60% / 100%, see [brain/README.md](brain/README.md)) |
 | 6 | ESP32 firmware | not started (waiting for parts; reference logic in `sim/flybot_sim/edge*.py`) |
 | 7–13 | Integration, logger, dashboard, bot, cloud, evaluation, demo | not started |
 

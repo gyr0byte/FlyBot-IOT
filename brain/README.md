@@ -4,7 +4,8 @@ One Python program, `python -m flybot_brain`, made of separate modules:
 
 | Module | Status | Job | MQTT user |
 |---|---|---|---|
-| `core.py` + `controllers/` | **Phase 4** | Contract rules, control ticks, baseline controller (neural: stub) | `brain` |
+| `core.py` + `controllers/` | **Phase 4–5** | Contract rules, control ticks, baseline and neural controllers | `brain` |
+| `network/` + `circuits/` | **Phase 5** | Spiking network engine; circuits as data (designed now, FlyWire in 5.13) | – |
 | `logger/` | Phase 8 | Every `flybot/01/#` message → SQLite, on the brain's connection | `brain` |
 | `bot/` | Phase 10 | Telegram alerts and commands, own connection with a narrow ACL | `bot` |
 
@@ -32,7 +33,7 @@ From the `brain` folder:
 ```powershell
 .venv\Scripts\python -m flybot_brain                      # config\brain.yaml
 .venv\Scripts\python -m flybot_brain --reset-on-reboot    # independent trials (batches)
-.venv\Scripts\python -m flybot_brain --controller neural  # stub: keeps the robot still
+.venv\Scripts\python -m flybot_brain --controller neural  # spiking network (steps 5.1–5.4)
 ```
 
 Other options: `--config <yaml>`, `--seed N`, `-v`. **Ctrl+C** stops it cleanly: it saves snapshot
@@ -85,7 +86,8 @@ Braitenberg-style (`controllers/baseline.py`). In priority order each tick:
 1. **Arrival:** stop and report `eat` when an odour value passes `arrive`. Hysteresis keeps it
    from twitching in the patchy plume.
 2. **Obstacle:** turn away on the spot, toward the stronger odour side, for `avoid_ms`. It also
-   slows down from `slow_cm`.
+   slows down from `slow_cm`. This and rule 4 are the shared, designed motor layer
+   (`controllers/motor.py`, config `motor:`).
 3. **Seek:** steer by the normalised left/right difference. The difference is weighted by the
    summed signal up to `steer_full_at`, because a weak signal is mostly plume patchiness.
 4. **Wander:** with no signal, drive forward with seeded random curves (`explore`).
@@ -113,6 +115,60 @@ physics clock, so "5 ms" means within one step. There was one 355 ms outlier.
 
 The remaining failures are mostly a single forward ultrasonic sensor not seeing obstacles beside
 the robot (`obstacles`), and starts far from the plume where the signal stays in the noise.
+
+## Neural controller (Phase 5, steps 5.1–5.4)
+
+`controllers/neural.py` runs a spiking network (`network/`) on a circuit loaded from files.
+Today that is `circuits/designed/`, made by `tools/make_designed_circuit.py`.
+
+**What is neural and what is designed.** This split is deliberate, and it should be stated this way
+in the report.
+
+| Part | Neural or designed | Where |
+|---|---|---|
+| Odour → receptor firing (rate code) | neural input layer: 50 Poisson receptors per side, 2 + 150 Hz × odour | circuit `inputs`, groups `rl`, `rr` |
+| Receptors → projection neurons, cross-lateral inhibition | **neural** (spiking network) | groups `pl`, `pr`, `ln_l`, `ln_r` |
+| Turn and speed from PN activity | **neural readout**: PN rates per side, smoothed over robot time; contrast sets the turn, total sets the speed | `neural:` config |
+| Arrival ("eat") | **neural readout**: peak PN rate above `arrive_hz` | `neural:` config |
+| Obstacle avoidance, slowing near obstacles, wandering without odour | **designed rules**, the same motor layer as the baseline | `controllers/motor.py`, `motor:` config |
+
+The circuit itself is designed for now: sizes, wiring and weights are design choices (the manifest
+says so). Step 5.13 swaps it for FlyWire connectome data without changing the engine.
+
+**The designed circuit** (170 neurons, 1,400 connections):
+- 50 receptors per side;
+- 25 projection neurons per side, each fed by 12 same-side receptors. They sit at half threshold, so
+  they respond from an odour value of about 0.03 but stay silent in clean air;
+- 10 local inhibitory neurons per side, driven by their own side's receptors. They inhibit the
+  opposite side's projection neurons, which roughly doubles the left/right contrast for weak and
+  moderate signals.
+
+### Neural vs baseline
+
+Lockstep over MQTT, brain process with `--reset-on-reboot`, 50 trials per scenario, both
+controllers on the same build:
+
+| Scenario | Reached: neural | Reached: baseline | Median time to source: neural / baseline | Collisions per trial: neural / baseline |
+|---|---|---|---|---|
+| default (60 s) | **46/50 (92%)** | 43/50 (86%) | 26.1 s / 18.1 s | 0.14 / 0.34 |
+| obstacles (90 s) | **30/50 (60%)** | 31/50 (62%) | 27.2 s / 23.8 s | 0.98 / 1.00 |
+| two_sources (90 s) | **50/50 (100%)** | 49/50 (98%) | 14.7 s / 12.2 s | 0.00 / 0.00 |
+
+0 messages were lost in all 300 trials.
+
+**Reading the table:**
+- The neural controller reaches the source as often as the baseline, within 2 points on
+  `obstacles` and better on the other two.
+- It takes **longer**, about 8 s more on `default`. Its smoothed spike-rate readout reacts more
+  slowly than the baseline's direct sensor difference.
+- Faster driving cut the `default` time to about 21 s, but lost about 6 points on `obstacles`, so it
+  was not adopted.
+
+**Before tuning** (in-process, 32 trials): 50% / 16% / 62%. Three things fixed that:
+- 400 ms readout smoothing, on top of the MQ-3's lag, made the robot orbit the source and scrape
+  walls. Now 100 ms.
+- Lateral inhibition sharpens plume patchiness too, so weak signals now steer less (`steer_full_hz` 120).
+- The arrival threshold fired about 20 cm from the source. Now 145 Hz.
 
 ## Circuit file format (version 1)
 
@@ -225,8 +281,12 @@ The budget is 50 ms per tick; the target was under 10 ms. `tests/test_network.py
 
 ## Tests
 
-From `brain\`: `.venv\Scripts\python -m pytest`. That runs 141 tests:
+From `brain\`: `.venv\Scripts\python -m pytest`. That runs 218 tests:
 - the core: tick, time base, reboots, gaps, warm-up, stale, paused, sleep, control and the reset flag;
 - message parsing in the link;
 - baseline decisions;
+- the circuit loader, accepting and rejecting every format rule;
+- the engine (step 5.1), including the FlyWire-scale performance check;
+- receptors (5.2) and antennal lobe contrast (5.3) on the designed circuit;
+- the neural controller's readout and motor-layer split (5.4);
 - the shared contract consistency tests.
