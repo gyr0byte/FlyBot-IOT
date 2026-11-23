@@ -6,7 +6,7 @@ import types
 import pytest
 
 from flybot_brain.config import BrainConfig
-from flybot_brain.controllers import Decision
+from flybot_brain.controllers import Controller, Decision
 from flybot_brain.core import Brain
 from flybot_brain.link import BrainLink
 from flybot_brain.config import MqttSettings
@@ -25,7 +25,7 @@ class Wall:
         return self.t
 
 
-class Recorder:
+class Recorder(Controller):
     """Stand-in controller: records inputs, returns a fixed decision."""
     name = "rec"
 

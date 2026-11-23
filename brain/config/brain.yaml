@@ -13,6 +13,7 @@ timing:
   sleep_repeat_ms: 5000     # cmd/sleep repeat while asleep (contract section 7)
   stale_ms: 250             # wall clock: no sensors for this long -> sens stale (section 6 rule 11)
   status_every_s: 10        # wall clock: brain/status heartbeat
+  weights_every_ms: 2000    # brain/weights at most this often (robot time)
 
 persistence:
   dir: .local/brain/snapshots   # relative to the repo root (git-ignored, on D:)
@@ -52,3 +53,12 @@ neural:                     # neural controller; see flybot_brain/controllers/ne
   speed_far: 0.7            # forward speed with weak PN activity ...
   speed_near: 0.6           # ... and with strong activity
   speed_full_hz: 100.0      # summed PN rate counted as strong
+  # Learned valence (5.6): approach vs avoid MBON activity modulates the innate odour attraction.
+  valence_smooth_ms: 300    # robot-time smoothing of MBON rates
+  valence_min_hz: 2.0       # below this summed MBON rate the valence counts as 0
+  valence_gain: 2.0         # drive = clip(1 + valence_gain * valence, drive_min, drive_max)
+  drive_min: -1.0           # -1: steer away from a punished odour as strongly as it was approached
+  drive_max: 1.5
+  reward_pulse_ms: 300      # a reward message drives the reward / punish DANs this long
+  forget_tau_s: 0           # forgetting: learned weights relax back with this time constant (0 = off)
+  pref_alpha: 0.05          # EMA per tick of the valence reported in brain/state.pref

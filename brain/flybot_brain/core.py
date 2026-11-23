@@ -67,12 +67,15 @@ class Brain:
         self.ack: dict | None = None
 
         self.next_state_ms = 0                  # robot time
+        self.next_weights_ms = 0                # robot time
+        self.weights_dirty = True               # publish brain/weights at start-up
+        self.last_weights_changes = -1
         self.next_state_wall = 0.0
         self.status_dirty = True
         self.next_status_wall = 0.0
         self.tick_log: deque = deque()          # (wall, compute ms)
         self.counters = {"ticks": 0, "commands": 0, "dropped": 0, "reboots": 0, "gaps": 0, "resets": 0,
-                         "invalid": 0}
+                         "invalid": 0, "rewards": 0, "weights_published": 0}
 
     # ------------------------------------------------------------------ helpers
 
@@ -100,7 +103,9 @@ class Brain:
             return self._on_sleep_request(msg)
         if name == "brain/control":
             return self._on_control(msg)
-        return []                               # status, events, reward: used from Phase 5 on
+        if name == "reward":
+            return self._on_reward(msg)
+        return []                               # status, events: used from Phase 5.7 on
 
     def pong(self, msg: dict) -> Out:
         return self._out("pong", ps=msg["seq"], pu=msg["up"])
@@ -159,6 +164,7 @@ class Brain:
         if t >= self.next_state_ms:
             outs.append(self._state())
             self.next_state_ms = t + self.cfg.timing.state_every_ms
+        outs += self._maybe_weights(t)
         self.counters["ticks"] += 1
         self.tick_log.append((now, (time.perf_counter() - t_start) * 1000.0))
         return outs
@@ -177,8 +183,41 @@ class Brain:
         if what in ("state", "all"):
             self.ctrl.reset()
             self.hun = self.fear = 0.0
-        # "weights": nothing learns yet (Phase 5.6)
+        if what in ("weights", "all"):
+            self.ctrl.reset_learning()
+            self.weights_dirty = True
         self.counters["resets"] += 1
+
+    # ------------------------------------------------------------------ reward and learned weights
+
+    def _on_reward(self, msg: dict) -> list[Out]:
+        key = ("reward", msg["src"])
+        if not self.streams.accept(key, msg["seq"], msg["up"], self._now_ms(), bid=msg.get("bid")):
+            return []                                        # duplicate (QoS 1 redelivery) or late
+        self.counters["rewards"] += 1
+        self.ctrl.on_reward(msg["r"], self.clock.ms)
+        log.info("%s from %s", "reward" if msg["r"] > 0 else "punishment", msg["src"])
+        return []
+
+    def _maybe_weights(self, t: int) -> list[Out]:
+        """brain/weights (contract 3.11): retained, at start-up, after load/reset and when learning
+        changed the weights, at most once per weights_every_ms of robot time."""
+        if t < self.next_weights_ms:
+            return []
+        changes = self.ctrl.learning_changes()
+        if not self.weights_dirty and changes == self.last_weights_changes:
+            return []
+        w = self.ctrl.weights_summary()
+        if w is None:
+            return []
+        if not (len(w["ap"]) == len(w["av"]) == w["n"]):     # known issue: the schema cannot check this
+            log.error("brain/weights not published: ap/av lengths %d/%d != n %d", len(w["ap"]), len(w["av"]), w["n"])
+            return []
+        self.weights_dirty = False
+        self.last_weights_changes = changes
+        self.next_weights_ms = t + self.cfg.timing.weights_every_ms
+        self.counters["weights_published"] += 1
+        return [self._out("brain/weights", **w)]
 
     # ------------------------------------------------------------------ periodic (wall clock)
 
@@ -216,7 +255,7 @@ class Brain:
 
     def _state(self) -> Out:
         return self._out("brain/state", hun=round(self.hun, 2), fear=round(self.fear, 2), slp=self.asleep,
-                         dec=self.dec, why=list(self.why[:3]), spk=self.ctrl.spikes(), les=[], pref={},
+                         dec=self.dec, why=list(self.why[:3]), spk=self.ctrl.spikes(), les=[], pref=self.ctrl.pref(),
                          rs=self.last_rs, ack=self.ack)
 
     # ------------------------------------------------------------------ sleep requests
@@ -245,6 +284,7 @@ class Brain:
                 if msg["k"] == "ctrl":
                     self.ctrl = make_controller(self.cfg)
                     self.status_dirty = True
+                    self.weights_dirty = True
                 ok = True
             elif c == "save":
                 ok = self.save(msg.get("name", "latest"))
@@ -273,6 +313,7 @@ class Brain:
         self.fear = float(data["internal"]["fear"])
         if data.get("controller") == self.cfg.controller:
             self.ctrl.load_state(data.get("controller_state", {}))
+            self.weights_dirty = True
 
     def save(self, name: str) -> bool:
         if self.snapshots is None:

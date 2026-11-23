@@ -36,6 +36,24 @@ class Controller:
     def step(self, inp: Inputs) -> Decision:
         raise NotImplementedError
 
+    def on_reward(self, r: int, t_ms: int) -> None:
+        """A reward (+1) or punishment (-1) message arrived (contract 3.8)."""
+
+    def reset_learning(self) -> None:
+        """Forget what was learned (brain/control reset "weights")."""
+
+    def weights_summary(self) -> dict | None:
+        """brain/weights fields (n, sc, ap, av) or None if nothing learns."""
+        return None
+
+    def learning_changes(self) -> int:
+        """A counter that increases whenever learned weights change."""
+        return 0
+
+    def pref(self) -> dict[str, float]:
+        """brain/state.pref: learned preference per cue (+ approach, - avoid)."""
+        return {}
+
     def spikes(self) -> dict[str, int]:
         """Spike counts per group for brain/state.spk ({} for non-spiking controllers)."""
         return {}

@@ -26,6 +26,7 @@ class Timing:
     sleep_repeat_ms: int = 5000
     stale_ms: int = 250
     status_every_s: float = 10.0
+    weights_every_ms: int = 2000      # brain/weights at most this often (robot time, contract 3.11)
 
 
 @dataclass
@@ -77,6 +78,15 @@ class Neural:
     speed_far: float = 0.7          # forward speed with weak PN activity ...
     speed_near: float = 0.6         # ... and with strong activity (total activity sets the speed)
     speed_full_hz: float = 100.0    # summed PN rate counted as "strong"
+    # Learned valence (5.6): approach vs avoid MBON activity modulates the innate odour attraction.
+    valence_smooth_ms: float = 300.0  # robot-time smoothing of MBON rates
+    valence_min_hz: float = 2.0     # below this summed MBON rate the valence counts as 0
+    valence_gain: float = 2.0       # drive = clip(1 + valence_gain * valence, drive_min, drive_max)
+    drive_min: float = -1.0         # -1: steer away from the odour as strongly as it is approached
+    drive_max: float = 1.5
+    reward_pulse_ms: float = 300.0  # a reward message drives the reward / punish DANs this long
+    forget_tau_s: float = 0.0       # plastic weights relax back with this time constant (0 = no forgetting)
+    pref_alpha: float = 0.05        # EMA of the valence per tick for brain/state.pref (lt / odr)
 
     def circuit_path(self) -> Path:
         p = Path(self.circuit)

@@ -1,8 +1,9 @@
 format: 1
 name: designed
 description: 'Designed circuit: olfactory front end (steps 5.2-5.3: rate-coded receptors,
-  projection neurons per side, cross-lateral inhibition) and mushroom body (5.5: Kenyon
-  cells with sparse PN and light input, APL feedback inhibition).'
+  projection neurons per side, cross-lateral inhibition), mushroom body (5.5: Kenyon
+  cells with sparse PN and light input, APL feedback inhibition) and outputs (5.6:
+  approach / avoid MBONs with plastic KC synapses, reward / punishment DANs).'
 source:
   kind: designed
 generator:
@@ -26,11 +27,25 @@ inputs:
     encoding: poisson_rate
     base_hz: 1.0
     gain_hz: 60.0
+  reward:
+    group: rwd
+    encoding: poisson_rate
+    base_hz: 0.0
+    gain_hz: 200.0
+  punish:
+    group: pun
+    encoding: poisson_rate
+    base_hz: 0.0
+    gain_hz: 200.0
 outputs:
   steer_left:
   - pl
   steer_right:
   - pr
+  approach:
+  - ma
+  avoid:
+  - mv
 projections:
 - name: rl_pl
   pre: rl
@@ -76,3 +91,34 @@ projections:
   pre: apl
   post: kc
   scale: 2.0
+- name: kc_ma
+  pre: kc
+  post: ma
+  scale: 1.0
+  plastic: true
+  plasticity:
+    rule: three_factor
+    lr: 0.0003
+    tau_elig_ms: 2500.0
+    w_min: 0.0
+    w_max: 1.0
+- name: kc_mv
+  pre: kc
+  post: mv
+  scale: 1.0
+  plastic: true
+  plasticity:
+    rule: three_factor
+    lr: 0.0003
+    tau_elig_ms: 2500.0
+    w_min: 0.0
+    w_max: 1.0
+- name: rwd_dp
+  pre: rwd
+  post: dp
+  scale: 0.15
+- name: pun_dn
+  pre: pun
+  post: dn
+  scale: 0.15
+modulation: modulation.csv

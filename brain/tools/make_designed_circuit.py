@@ -8,6 +8,9 @@ the OPPOSITE side's projection neurons, so the stronger side suppresses the weak
 Mushroom body (5.5): Kenyon cells with sparse random input from projection neurons (both sides)
 and from a light input, and one APL-like neuron giving global feedback inhibition, so that only a
 small fraction of KCs respond to any cue combination (sparse, cue-specific patterns).
+Outputs and dopamine (5.6): approach and avoid MBON groups receive plastic KC synapses; reward and
+punishment DAN groups, driven by the reward topic, depress recently active KC synapses in their own
+compartment (modulation.csv): reward DANs gate KC->avoid, punishment DANs gate KC->approach.
 """
 from __future__ import annotations
 
@@ -40,6 +43,14 @@ LIGHT_KC_FRACTION, LIGHT_PER_KC = 0.3, 3
 LIGHT_BASE_HZ, LIGHT_GAIN_HZ = 1.0, 60.0
 SCALE_MB = {"pn_kc": 0.30, "lgt_kc": 0.80, "kc_apl": 0.30, "apl_kc": 2.0}
 LIF_KC = dict(LIF_PN, bias=0.0)
+
+# Outputs and dopamine (5.6).
+N_MBON, N_DAN, N_DAN_IN = 10, 5, 10
+KC_MBON_P = 0.3                    # each KC -> each MBON with this probability
+W_KC_MBON = 1.0                    # initial = maximum: learning only depresses
+PLASTICITY = {"rule": "three_factor", "lr": 0.0003, "tau_elig_ms": 2500.0, "w_min": 0.0, "w_max": 1.0}
+DAN_IN_GAIN_HZ = 200.0             # reward / punish input rate while a pulse is on
+SCALE_OUT = {"kc_mbon": 1.0, "dan_in": 0.15}      # DANs ~50 Hz during a reward pulse
 LIF_APL = dict(LIF_PN, tau_m_ms=10, bias=0.0)
 
 
@@ -58,6 +69,12 @@ def generate(out: Path, seed: int = 1):
         {"group": "lgt", "size": N_LIGHT, "model": "poisson", "side": "-"},
         {"group": "kc", "size": N_KC, **LIF_KC, "side": "-", "spk_key": "kc", "lesion_target": "mb"},
         {"group": "apl", "size": 1, **LIF_APL, "side": "-", "spk_key": "apl", "lesion_target": "apl"},
+        {"group": "ma", "size": N_MBON, **LIF_PN, "bias": 0.0, "side": "-", "spk_key": "ma"},
+        {"group": "mv", "size": N_MBON, **LIF_PN, "bias": 0.0, "side": "-", "spk_key": "mv"},
+        {"group": "rwd", "size": N_DAN_IN, "model": "poisson", "side": "-"},
+        {"group": "pun", "size": N_DAN_IN, "model": "poisson", "side": "-"},
+        {"group": "dp", "size": N_DAN, **LIF_PN, "bias": 0.0, "side": "-", "spk_key": "dp"},
+        {"group": "dn", "size": N_DAN, **LIF_PN, "bias": 0.0, "side": "-", "spk_key": "dn"},
     ]
 
     conns = []
@@ -86,6 +103,18 @@ def generate(out: Path, seed: int = 1):
             conns.append(("lgt_kc", int(lg), int(kc), claw(), "exc"))
     conns += [("kc_apl", kc, 0, 1.0, "exc") for kc in range(N_KC)]
     conns += [("apl_kc", 0, kc, 1.0, "inh") for kc in range(N_KC)]
+    # Outputs: plastic KC -> approach / avoid MBONs; reward / punish inputs -> DANs.
+    for grp in ("ma", "mv"):
+        for kc in range(N_KC):
+            for mb in np.flatnonzero(rng.random(N_MBON) < KC_MBON_P):
+                conns.append((f"kc_{grp}", kc, int(mb), W_KC_MBON, "exc"))
+    for src, dan in (("rwd", "dp"), ("pun", "dn")):
+        conns += [(f"{src}_{dan}", i, d, 1.0, "exc") for i in range(N_DAN_IN) for d in range(N_DAN)]
+    # Modulation map: reward DANs depress KC->avoid, punishment DANs depress KC->approach.
+    modulation = [{"modulator_group": "dp", "modulator_index": d, "target_group": "mv",
+                   "target_from": 0, "target_to": N_MBON} for d in range(N_DAN)]
+    modulation += [{"modulator_group": "dn", "modulator_index": d, "target_group": "ma",
+                    "target_from": 0, "target_to": N_MBON} for d in range(N_DAN)]
 
     projections = []
     for side in ("l", "r"):
@@ -101,12 +130,19 @@ def generate(out: Path, seed: int = 1):
         {"name": "lgt_kc", "pre": "lgt", "post": "kc", "scale": SCALE_MB["lgt_kc"]},
         {"name": "kc_apl", "pre": "kc", "post": "apl", "scale": SCALE_MB["kc_apl"]},
         {"name": "apl_kc", "pre": "apl", "post": "kc", "scale": SCALE_MB["apl_kc"]},
+        {"name": "kc_ma", "pre": "kc", "post": "ma", "scale": SCALE_OUT["kc_mbon"], "plastic": True,
+         "plasticity": dict(PLASTICITY)},
+        {"name": "kc_mv", "pre": "kc", "post": "mv", "scale": SCALE_OUT["kc_mbon"], "plastic": True,
+         "plasticity": dict(PLASTICITY)},
+        {"name": "rwd_dp", "pre": "rwd", "post": "dp", "scale": SCALE_OUT["dan_in"]},
+        {"name": "pun_dn", "pre": "pun", "post": "dn", "scale": SCALE_OUT["dan_in"]},
     ]
     manifest = {
         "name": "designed",
         "description": ("Designed circuit: olfactory front end (steps 5.2-5.3: rate-coded receptors, projection "
-                        "neurons per side, cross-lateral inhibition) and mushroom body (5.5: Kenyon cells with "
-                        "sparse PN and light input, APL feedback inhibition)."),
+                        "neurons per side, cross-lateral inhibition), mushroom body (5.5: Kenyon cells with "
+                        "sparse PN and light input, APL feedback inhibition) and outputs (5.6: approach / avoid "
+                        "MBONs with plastic KC synapses, reward / punishment DANs)."),
         "source": {"kind": "designed"},
         "generator": {"script": "brain/tools/make_designed_circuit.py", "seed": seed},
         "designed_parts": "All of it. Sizes, wiring and weights are design choices, not connectome data.",
@@ -114,11 +150,13 @@ def generate(out: Path, seed: int = 1):
             "odour_left": {"group": "rl", "encoding": "poisson_rate", "base_hz": RATE_BASE_HZ, "gain_hz": RATE_GAIN_HZ},
             "odour_right": {"group": "rr", "encoding": "poisson_rate", "base_hz": RATE_BASE_HZ, "gain_hz": RATE_GAIN_HZ},
             "light": {"group": "lgt", "encoding": "poisson_rate", "base_hz": LIGHT_BASE_HZ, "gain_hz": LIGHT_GAIN_HZ},
+            "reward": {"group": "rwd", "encoding": "poisson_rate", "base_hz": 0.0, "gain_hz": DAN_IN_GAIN_HZ},
+            "punish": {"group": "pun", "encoding": "poisson_rate", "base_hz": 0.0, "gain_hz": DAN_IN_GAIN_HZ},
         },
-        "outputs": {"steer_left": ["pl"], "steer_right": ["pr"]},
+        "outputs": {"steer_left": ["pl"], "steer_right": ["pr"], "approach": ["ma"], "avoid": ["mv"]},
         "projections": projections,
     }
-    return write_circuit(out, manifest, groups, conns)
+    return write_circuit(out, manifest, groups, conns, modulation=modulation)
 
 
 def main() -> int:

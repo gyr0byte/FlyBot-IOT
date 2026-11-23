@@ -1,0 +1,11 @@
+modulator_group,modulator_index,target_group,target_from,target_to,compartment
+dp,0,mv,0,10,
+dp,1,mv,0,10,
+dp,2,mv,0,10,
+dp,3,mv,0,10,
+dp,4,mv,0,10,
+dn,0,ma,0,10,
+dn,1,ma,0,10,
+dn,2,ma,0,10,
+dn,3,ma,0,10,
+dn,4,ma,0,10,

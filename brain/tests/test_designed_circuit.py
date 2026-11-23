@@ -43,7 +43,7 @@ def test_shape(circuit):
     assert circuit.groups["pl"].size == 25 and circuit.groups["rl"].size == 50 and circuit.groups["ln_l"].size == 10
     assert circuit.manifest["source"]["kind"] == "designed"
     assert {"odour_left", "odour_right", "light"} <= set(circuit.inputs)
-    assert circuit.outputs == {"steer_left": ["pl"], "steer_right": ["pr"]}
+    assert circuit.outputs["steer_left"] == ["pl"] and circuit.outputs["steer_right"] == ["pr"]
 
 
 # ----------------------------------------------------------------------------- 5.2 receptors
