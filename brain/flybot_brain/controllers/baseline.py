@@ -3,40 +3,39 @@
 Rules, in priority order, every tick:
   1. arrival: max(left, right) >= arrive -> stop, "eat" (hysteresis: stay until it falls below
      arrive * leave_ratio, so the plume's patchiness doesn't make it twitch on the source);
-  2. obstacle closer than avoid_cm -> turn on the spot for avoid_ms (towards the stronger odour
-     side if there is a signal, else a random side), "avoid";
+  2. obstacle -> the designed motor layer's on-the-spot turn (towards the stronger odour side if
+     there is a signal), "avoid";
   3. odour signal (left + right >= detect) -> steer towards the stronger side in proportion to
-     the normalised difference (left - right) / (left + right), slowing down near obstacles, "seek";
-  4. no signal -> wander forward with a gentle random curve that changes every wander_change_ms,
-     so the robot covers ground instead of sitting still, "explore".
-Odour inputs are smoothed (EMA) against sensor noise. All numbers come from brain.yaml.
-It is the comparison point for the neural controller ("why not just if-else?").
+     the normalised difference (left - right) / (left + right), weighted by the summed signal up to
+     steer_full_at, slowing down near obstacles, "seek";
+  4. no signal -> the motor layer's wandering, "explore".
+Odour inputs are smoothed (EMA) against sensor noise. All numbers come from brain.yaml
+(baseline: and motor:). It is the comparison point for the neural controller.
 """
 from __future__ import annotations
 
 import random
 
-from ..config import Baseline
+from ..config import Baseline, Motor
 from .base import Controller, Decision, Inputs
+from .motor import MotorLayer
 
 
 class BaselineController(Controller):
     name = "baseline"
 
-    def __init__(self, p: Baseline, seed: int):
+    def __init__(self, p: Baseline, motor: Motor, seed: int):
         self.p = p
+        self.motor_p = motor
         self.seed = seed
         self.reset()
 
     def reset(self) -> None:
         self.rng = random.Random(self.seed)
+        self.motor = MotorLayer(self.motor_p, self.rng)
         self.sl: float | None = None
         self.sr: float | None = None
         self.feeding = False
-        self.avoid_until = -1
-        self.avoid_dir = 1.0
-        self.curve = 0.0
-        self.next_curve = 0
 
     def state_dict(self) -> dict:
         return {"feeding": self.feeding}
@@ -59,25 +58,16 @@ class BaselineController(Controller):
         if self.feeding:
             return Decision(0.0, 0.0, "eat", ["odour_high"])
 
-        # 2. obstacle: turn on the spot, keep the direction for avoid_ms
-        d = inp.d
-        if t < self.avoid_until or (d is not None and d < p.avoid_cm):
-            if t >= self.avoid_until:
-                if total >= p.detect and self.sl != self.sr:
-                    self.avoid_dir = 1.0 if self.sl > self.sr else -1.0
-                else:
-                    self.avoid_dir = 1.0 if self.rng.random() < 0.5 else -1.0
-                self.avoid_until = t + p.avoid_ms
-            s = p.avoid_turn * self.avoid_dir
-            return Decision(-s, s, "avoid", ["obstacle"])
+        # 2. obstacle (designed motor layer)
+        prefer = None
+        if total >= p.detect and self.sl != self.sr:
+            prefer = 1.0 if self.sl > self.sr else -1.0
+        avoid = self.motor.avoid(t, inp.d, prefer)
+        if avoid is not None:
+            return avoid
+        slow = self.motor.slow_factor(inp.d)
 
-        slow = 1.0
-        if d is not None and d < p.slow_cm:
-            slow = max(0.25, (d - p.avoid_cm) / (p.slow_cm - p.avoid_cm))
-
-        # 3. seek: steer towards the stronger side. A weak signal is mostly plume patchiness, so
-        #    the left/right difference only gets full weight once the summed signal reaches
-        #    steer_full_at (below that it steers proportionally less).
+        # 3. seek: steer towards the stronger side (weak signals are mostly patchiness)
         if total >= p.detect:
             nd = (self.sl - self.sr) / total
             if abs(nd) < p.diff_deadband:
@@ -90,9 +80,5 @@ class BaselineController(Controller):
                 why.append("obstacle")
             return Decision(fwd - turn, fwd + turn, "seek", why)
 
-        # 4. wander
-        if t >= self.next_curve:
-            self.curve = (self.rng.random() * 2.0 - 1.0) * p.wander_curve
-            self.next_curve = t + p.wander_change_ms
-        fwd = p.wander_speed * slow
-        return Decision(fwd - self.curve, fwd + self.curve, "explore", ["no_odour"])
+        # 4. wander (designed motor layer)
+        return self.motor.wander(t, slow)

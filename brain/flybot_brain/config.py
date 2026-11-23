@@ -49,6 +49,11 @@ class Baseline:
     turn_gain: float = 0.9
     diff_deadband: float = 0.03
     steer_full_at: float = 0.0      # summed odour at which steering gets full weight (0 = always full)
+
+
+@dataclass
+class Motor:
+    """Designed motor layer shared by both controllers: obstacles and wandering."""
     slow_cm: float = 45.0
     avoid_cm: float = 22.0
     avoid_turn: float = 0.55
@@ -59,6 +64,26 @@ class Baseline:
 
 
 @dataclass
+class Neural:
+    """Neural controller: which circuit, and how projection-neuron activity is read out."""
+    circuit: str = "brain/circuits/designed"   # circuit folder (format v1), relative to the repo root
+    smooth_ms: float = 400.0        # robot-time smoothing of PN rates (MQ-3 lag, patchiness)
+    detect_hz: float = 2.0          # summed left + right PN rate above this = an odour signal
+    arrive_hz: float = 120.0        # max(left, right) PN rate above this = at the source: stop, "eat"
+    leave_ratio: float = 0.7        # ... until it falls below arrive_hz * leave_ratio
+    turn_gain: float = 0.9          # turn per unit of PN contrast (left - right) / (left + right)
+    diff_deadband: float = 0.05     # ignore smaller contrasts
+    steer_full_hz: float = 20.0     # summed PN rate for full steering weight
+    speed_far: float = 0.7          # forward speed with weak PN activity ...
+    speed_near: float = 0.6         # ... and with strong activity (total activity sets the speed)
+    speed_full_hz: float = 100.0    # summed PN rate counted as "strong"
+
+    def circuit_path(self) -> Path:
+        p = Path(self.circuit)
+        return p if p.is_absolute() else REPO / p
+
+
+@dataclass
 class BrainConfig:
     controller: str = "baseline"
     seed: int = 1
@@ -66,6 +91,8 @@ class BrainConfig:
     timing: Timing = field(default_factory=Timing)
     persistence: Persistence = field(default_factory=Persistence)
     baseline: Baseline = field(default_factory=Baseline)
+    motor: Motor = field(default_factory=Motor)
+    neural: Neural = field(default_factory=Neural)
 
     def __post_init__(self):
         if self.controller not in ("baseline", "neural"):
@@ -103,7 +130,7 @@ def set_param(cfg: BrainConfig, key: str, value: Any) -> None:
         cfg.controller = value
         return
     section, _, name = key.partition(".")
-    if section not in ("baseline", "timing", "experiment") or not name:
+    if section not in ("baseline", "motor", "neural", "timing", "experiment") or not name:
         raise KeyError(key)
     obj = getattr(cfg, section)
     hints = typing.get_type_hints(type(obj))

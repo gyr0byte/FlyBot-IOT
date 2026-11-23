@@ -422,7 +422,8 @@ def write_circuit(path: str | Path, manifest: dict, groups: list[dict], connecti
         m["neurons"] = "neurons.csv"
     if modulation is not None:
         m["modulation"] = "modulation.csv"
-    (path / "manifest.yaml").write_text(yaml.safe_dump(m, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    (path / "manifest.yaml").write_text(yaml.safe_dump(m, sort_keys=False, allow_unicode=True), encoding="utf-8",
+                                        newline="\n")
 
     def write(name, columns, rows):
         with (path / name).open("w", newline="", encoding="utf-8") as f:
@@ -439,5 +440,5 @@ def write_circuit(path: str | Path, manifest: dict, groups: list[dict], connecti
     if modulation is not None:
         write("modulation.csv", MODULATION_COLUMNS, modulation)
     if notice:
-        (path / "NOTICE").write_text(notice, encoding="utf-8")
+        (path / "NOTICE").write_text(notice, encoding="utf-8", newline="\n")
     return load_circuit(path)

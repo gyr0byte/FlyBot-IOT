@@ -1,13 +1,20 @@
 """Baseline controller decisions."""
 import pytest
 
-from flybot_brain.config import Baseline
+import dataclasses
+
+from flybot_brain.config import Baseline, Motor
 from flybot_brain.controllers.base import Inputs
 from flybot_brain.controllers.baseline import BaselineController
 
+MOTOR_FIELDS = {f.name for f in dataclasses.fields(Motor)}
+
 
 def ctl(**kw):
-    return BaselineController(Baseline(**kw), seed=1)
+    """Baseline with overrides; obstacle / wander settings go to the shared motor layer."""
+    motor = {k: v for k, v in kw.items() if k in MOTOR_FIELDS}
+    base = {k: v for k, v in kw.items() if k not in MOTOR_FIELDS}
+    return BaselineController(Baseline(**base), Motor(**motor), seed=1)
 
 
 def run(c, ol, orr, d=150.0, n=1, t0=0, dt=50):

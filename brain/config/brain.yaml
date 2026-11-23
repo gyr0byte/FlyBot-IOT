@@ -1,7 +1,7 @@
 # FlyBot brain configuration. Anything not listed uses the defaults in flybot_brain/config.py.
 # Unknown keys are an error. Times in ms are robot time unless they say wall.
 
-controller: baseline        # baseline | neural (neural is a stub until Phase 5)
+controller: baseline        # baseline | neural
 seed: 1                     # random seed (baseline wandering); re-applied on reset
 
 experiment:
@@ -29,6 +29,8 @@ baseline:                   # Braitenberg-style controller; see flybot_brain/con
   turn_gain: 0.9            # turn command per unit of normalised left/right difference
   diff_deadband: 0.03       # ignore normalised differences smaller than this
   steer_full_at: 0.30       # summed odour for full steering weight: weaker = mostly patchiness, steer less
+
+motor:                      # designed motor layer used by BOTH controllers (not neural)
   slow_cm: 60               # obstacle closer than this: slow down ...
   avoid_cm: 22              # ... closer than this: turn away on the spot
   avoid_turn: 0.55          # turn command while avoiding
@@ -36,3 +38,16 @@ baseline:                   # Braitenberg-style controller; see flybot_brain/con
   wander_speed: 0.45        # forward command with no odour signal
   wander_curve: 0.25        # max left/right difference while wandering
   wander_change_ms: 1500    # pick a new random curve this often
+
+neural:                     # neural controller; see flybot_brain/controllers/neural.py
+  circuit: brain/circuits/designed   # circuit folder (format v1), relative to the repo root
+  smooth_ms: 400            # robot-time smoothing of projection-neuron (PN) rates
+  detect_hz: 2.0            # summed left + right PN rate above this = an odour signal
+  arrive_hz: 120.0          # max(left, right) PN rate above this = at the source: stop ("eat")
+  leave_ratio: 0.7          # ... until it falls below arrive_hz * leave_ratio
+  turn_gain: 0.9            # turn per unit of PN contrast (left - right) / (left + right)
+  diff_deadband: 0.05       # ignore smaller contrasts
+  steer_full_hz: 20.0       # summed PN rate for full steering weight
+  speed_far: 0.7            # forward speed with weak PN activity ...
+  speed_near: 0.6           # ... and with strong activity
+  speed_full_hz: 100.0      # summed PN rate counted as strong
