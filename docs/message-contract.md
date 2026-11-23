@@ -34,14 +34,14 @@ program and uses the `brain` connection.
 | `status` | robot (last will: broker) | brain, dashboard, bot | 1 | **yes** | on change + every 10 s | `status` | 1 |
 | `cmd/motor` | brain | robot, dashboard | 0 | no | every brain tick (20 Hz) | `cmd-motor` | 1 |
 | `cmd/manual` | dashboard | robot, brain | 0 | no | 10 Hz while driving | `cmd-manual` | 2 |
-| `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` | 1 |
+| `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` | 2 |
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
-| `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 1 |
+| `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 2 |
 | `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 2 |
 | `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 2 |
 | `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` | 1 |
 | `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 2 |
-| `brain/sleep` | dashboard, bot | brain only | 1 | no | on user action | `brain-sleep` | 1 |
+| `brain/sleep` | dashboard, bot | brain only | 1 | no | on user action | `brain-sleep` | 2 |
 | `ping` | robot | brain | 0 | no | 1 Hz | `ping` | 1 |
 | `pong` | brain | robot | 0 | no | once per ping, immediately | `pong` | 1 |
 
@@ -226,11 +226,15 @@ robot that reboots gets its last mode straight back, so an emergency stop surviv
 |---|---|---|---|---|---|
 | `v`, `seq`, `up` | | | | | Common fields. |
 | `m` | string | – | `auto`, `manual`, `estop` | – | Requested mode. |
-| `src` | string | – | `dash`, `bot` | – | Who sent it (bookkeeping, §2). |
+| `src` | string | – | `bot` or `^dash-[0-9a-f]{6}$` | – | Sender name (§2). |
 
 ```json
-{"v":1,"seq":4,"up":300120,"m":"estop","src":"dash"}
+{"v":2,"seq":4,"up":300120,"m":"estop","src":"dash-3fa2c1"}
 ```
+
+The retained copy keeps the `src` and `seq` of whichever sender set it last. A receiver that
+subscribes later treats it as current state (§6 rule 10) and does not compare its `seq` with
+other senders' streams.
 
 ### 3.7 `flybot/01/cmd/sleep`
 
@@ -257,10 +261,14 @@ Publishers debounce. The brain drops duplicates by (`src`, `seq`) (§6).
 |---|---|---|---|---|---|
 | `v`, `seq`, `up` | | | | | Common fields. |
 | `r` | integer | – | `1` or `-1` | 0 | `1` = reward ("good bot"), `-1` = punishment ("bad bot"). |
-| `src` | string | – | `btn`, `dash`, `bot` | – | Who sent it. The simulator's keyboard reward also uses `btn`. |
+| `src` | string | – | `btn`, `bot` or `^dash-[0-9a-f]{6}$` | – | Sender name (§2). `btn` = robot buttons; the simulator's keyboard reward also uses `btn`. |
 
 ```json
-{"v":1,"seq":3,"up":120455,"r":1,"src":"bot"}
+{"v":2,"seq":3,"up":120455,"r":1,"src":"bot"}
+```
+From a dashboard tab:
+```json
+{"v":2,"seq":0,"up":8120,"r":-1,"src":"dash-3fa2c1"}
 ```
 
 ### 3.9 `flybot/01/brain/status`
@@ -392,10 +400,10 @@ with `why:"user"`. It never reaches the robot directly.
 |---|---|---|---|---|---|
 | `v`, `seq`, `up` | | | | | Common fields. |
 | `s` | boolean | – | | – | `true` = request sleep, `false` = request wake. |
-| `src` | string | – | `dash`, `bot` | – | Who sent it (bookkeeping, §2). |
+| `src` | string | – | `bot` or `^dash-[0-9a-f]{6}$` | – | Sender name (§2). |
 
 ```json
-{"v":1,"seq":2,"up":45000,"s":true,"src":"bot"}
+{"v":2,"seq":2,"up":45000,"s":true,"src":"bot"}
 ```
 
 ### 3.14 `flybot/01/ping`
@@ -703,4 +711,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 |---|---|---|
 | 1 | 2026-11-23 | First version. All message types at `v = 1`. |
 | 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. Stale sensor data: the brain stops publishing `cmd/motor` instead of sending stop commands, so the robot's watchdog moves it to fallback. `brain/status` → `v = 2`: new `sens` field (`ok`/`stale`/`none`). New §5.1 makes four robot defaults defined behaviour: start in `auto` if no mode arrives within 2 s, stop (not wander) in `manual` with no commands, reflexes off while asleep, leave fallback after 3 consecutive valid commands. |
-| 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. |
+| 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. `cmd/mode` → `v = 2`: `src` is `bot` or a tab name. `reward` → `v = 2`: `src` is `btn`, `bot` or a tab name. `brain/sleep` → `v = 2`: `src` is `bot` or a tab name. |

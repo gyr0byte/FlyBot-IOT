@@ -2,18 +2,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:flybot:schema:cmd-mode",
   "title": "flybot/01/cmd/mode",
-  "description": "Robot mode, QoS 1, retained, published only by dashboard and bot. Contract section 3.6.",
+  "description": "Robot mode, QoS 1, retained, published only by dashboard tabs and the bot. Contract section 3.6.",
   "type": "object",
   "properties": {
-    "v": { "const": 1, "description": "Schema version." },
+    "v": { "const": 2, "description": "Schema version." },
     "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number." },
     "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." },
     "m": { "enum": ["auto", "manual", "estop"], "description": "Requested mode." },
-    "src": { "enum": ["dash", "bot"], "description": "Sender (bookkeeping only; the ACL decides who may publish)." }
+    "src": { "type": "string", "pattern": "^(bot|dash-[0-9a-f]{6})$", "description": "Sender name: bot, or a dashboard tab's dash-xxxxxx (bookkeeping only; the ACL decides who may publish)." }
   },
   "required": ["v", "seq", "up", "m", "src"],
   "additionalProperties": false,
   "examples": [
-    { "v": 1, "seq": 4, "up": 300120, "m": "estop", "src": "dash" }
+    { "v": 2, "seq": 4, "up": 300120, "m": "estop", "src": "dash-3fa2c1" }
   ]
 }

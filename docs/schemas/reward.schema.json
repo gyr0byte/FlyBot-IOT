@@ -5,15 +5,16 @@
   "description": "Reward or punishment for the brain, QoS 1, not retained, on press. Receivers drop duplicates by (src, seq). Contract section 3.8.",
   "type": "object",
   "properties": {
-    "v": { "const": 1, "description": "Schema version." },
+    "v": { "const": 2, "description": "Schema version." },
     "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number." },
     "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." },
     "r": { "enum": [1, -1], "description": "1 = reward, -1 = punishment." },
-    "src": { "enum": ["btn", "dash", "bot"], "description": "Sender: robot/simulator button, dashboard, or Telegram bot." }
+    "src": { "type": "string", "pattern": "^(btn|bot|dash-[0-9a-f]{6})$", "description": "Sender name: btn (robot or simulator button), bot, or a dashboard tab's dash-xxxxxx." }
   },
   "required": ["v", "seq", "up", "r", "src"],
   "additionalProperties": false,
   "examples": [
-    { "v": 1, "seq": 3, "up": 120455, "r": 1, "src": "bot" }
+    { "v": 2, "seq": 3, "up": 120455, "r": 1, "src": "bot" },
+    { "v": 2, "seq": 0, "up": 8120, "r": -1, "src": "dash-3fa2c1" }
   ]
 }
