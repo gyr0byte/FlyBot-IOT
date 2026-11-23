@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from .config import REPO, Scenario, load_scenario
-from .contract import Contract
+from flybot_contract import Contract
 from .runner import run_lockstep, run_realtime, trial_done
 from .sim import Simulation
 

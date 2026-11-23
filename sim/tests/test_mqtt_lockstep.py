@@ -9,8 +9,8 @@ import time
 import pytest
 
 from flybot_sim.config import MqttSettings, load_scenario
-from flybot_sim.contract import Contract
-from flybot_sim.driver import Driver, RobotClock
+from flybot_contract import Contract
+from flybot_sim.driver import Driver
 from flybot_sim.link import Link
 from flybot_sim.runner import run_lockstep, run_realtime
 from flybot_sim.sim import Simulation
@@ -87,13 +87,6 @@ def test_realtime_measures_latency(session):
     assert r["crtt_median_ms"] is not None and r["crtt_median_ms"] < 100
     assert r["rtt_median_ms"] is not None and r["rtt_median_ms"] < 100
 
-
-def test_robot_clock_is_monotonic_and_caps_gaps():
-    c = RobotClock()
-    assert [c.advance(u) for u in (1000, 1050, 1100)] == [0, 50, 100]
-    assert c.advance(40) == 100 and c.reboots == 1          # reboot: step counts 0
-    assert c.advance(90) == 150
-    assert c.advance(5090) == 250 and c.gaps == 1           # 5 s gap capped at 100 ms
 
 
 @needs_broker

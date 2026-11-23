@@ -17,7 +17,7 @@ import numpy as np  # noqa: E402
 import pygame  # noqa: E402
 
 from .config import load_scenario  # noqa: E402
-from .contract import Contract  # noqa: E402
+from flybot_contract import Contract  # noqa: E402
 from .edge import BOOT, CLOUD, ESCAPE, ESTOP, FALLBACK, MANUAL, SLEEP  # noqa: E402
 from .robot import Pose  # noqa: E402
 from .sim import Simulation  # noqa: E402

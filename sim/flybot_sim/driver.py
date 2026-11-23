@@ -20,7 +20,7 @@ import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
 
 from .config import MqttSettings
-from .contract import Contract, ContractError, Outbox
+from flybot_contract import Contract, ContractError, Outbox, RobotClock  # noqa: F401 (RobotClock re-exported)
 
 log = logging.getLogger("flybot_sim.driver")
 
@@ -28,7 +28,6 @@ ACTIONS = {
     "straight": (0.5, 0.5), "back": (-0.4, -0.4), "turn": (-0.45, 0.45), "right": (0.45, -0.45),
     "arc": (0.3, 0.5), "stop": (0.0, 0.0), "silent": None,
 }
-GAP_MS, GAP_CAP_MS = 500, 100   # contract section 7.1 (4)
 
 
 def parse_script(text: str) -> list[tuple[str, float]]:
@@ -39,29 +38,6 @@ def parse_script(text: str) -> list[tuple[str, float]]:
             raise ValueError(f"unknown action {name!r}; use one of {sorted(ACTIONS)}")
         segs.append((name, float(secs or "1e9")))
     return segs
-
-
-class RobotClock:
-    """Monotonic robot time from sensors.up (contract section 7.1 (3) and (4))."""
-
-    def __init__(self):
-        self.last_up: int | None = None
-        self.ms = 0
-        self.gaps = 0
-        self.reboots = 0
-
-    def advance(self, up: int) -> int:
-        if self.last_up is not None:
-            step = up - self.last_up
-            if step < 0:
-                self.reboots += 1
-                step = 0
-            elif step > GAP_MS:
-                self.gaps += 1
-                step = GAP_CAP_MS
-            self.ms += step
-        self.last_up = up
-        return self.ms
 
 
 class Driver:

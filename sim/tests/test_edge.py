@@ -6,8 +6,7 @@ import random
 
 import pytest
 
-from flybot_sim.edge import (BOOT, CLOUD, ESCAPE, ESTOP, FALLBACK, MANUAL, SLEEP, Edge, MotorMixer,
-                             StreamTracker)
+from flybot_sim.edge import BOOT, CLOUD, ESCAPE, ESTOP, FALLBACK, MANUAL, SLEEP, Edge, MotorMixer
 from flybot_sim.edge_config import EdgeConfig
 
 
@@ -382,22 +381,6 @@ def test_mixer_dead_zone_cap_and_ramp():
     assert m.apply(1.0, 1.0, 50)[0] == pytest.approx(0.3)   # 6 per second * 50 ms
 
 
-def test_stream_tracker_counts_loss_and_handles_wrap():
-    t = StreamTracker(600000)
-    assert t.accept(("x",), 4294967294, 10, 0)
-    assert t.accept(("x",), 4294967295, 20, 0)
-    assert t.accept(("x",), 1, 30, 0)        # wrapped: 0 was lost
-    assert t.lost == 1
-    assert not t.accept(("x",), 1, 30, 0)    # duplicate
-    assert t.accept(("y",), 77, 5, 0)        # new sender, no loss counted
-    assert t.lost == 1
-
-
-def test_stream_tracker_forgets_idle_senders():
-    t = StreamTracker(1000)
-    t.accept(("x",), 50, 100, 0)
-    assert t.accept(("x",), 3, 200, 5000)    # forgotten: starts again, no loss
-    assert t.lost == 0
 
 
 def test_object_suddenly_appearing_is_not_counted_as_approach():

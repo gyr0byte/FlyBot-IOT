@@ -12,8 +12,8 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
-from .config import REPO
-
+REPO = Path(__file__).resolve().parents[2]   # installed editable, so this is the repo checkout
+CONTRACT_MD = REPO / "docs" / "message-contract.md"
 SCHEMA_DIR = REPO / "docs" / "schemas"
 # topic name (after flybot/<id>/) -> schema file stem
 TOPIC_SCHEMA = {

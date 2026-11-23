@@ -15,7 +15,7 @@ import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
 
 from .config import MqttSettings
-from .contract import Contract, ContractError, offline_status
+from flybot_contract import Contract, ContractError, offline_status
 
 log = logging.getLogger("flybot_sim.link")
 

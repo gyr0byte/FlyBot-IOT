@@ -26,45 +26,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from flybot_contract import StreamTracker  # contract section 6 rules (shared with the brain)
+
 from .edge_config import EdgeConfig
 
 # Robot states (contract status.st) and modes (contract cmd/mode.m).
 BOOT, CLOUD, MANUAL, ESCAPE, FALLBACK, SLEEP, ESTOP = (
     "boot", "cloud", "manual", "escape", "fallback", "sleep", "estop")
 MODE_AUTO, MODE_MANUAL, MODE_ESTOP = "auto", "manual", "estop"
-SEQ_MOD = 2 ** 32
-
-
-class StreamTracker:
-    """Contract section 6, rules 3-8 and 13: per-stream seq tracking for incoming commands."""
-
-    def __init__(self, idle_forget_ms: int):
-        self.idle_forget_ms = idle_forget_ms
-        self.streams: dict[tuple, tuple[int, int, int]] = {}  # key -> (seq, up, last_seen_ms)
-        self.lost = 0
-        self.restarts = 0
-        self.dropped = 0
-
-    def accept(self, key: tuple, seq: int, up: int, now: int) -> bool:
-        """True if the message is new and in order. Duplicates and late messages are dropped."""
-        for k in [k for k, (_, _, seen) in self.streams.items() if now - seen > self.idle_forget_ms]:
-            del self.streams[k]                                    # rule 13: forget idle senders
-        prev = self.streams.get(key)
-        if prev is None:                                           # rule 13: new sender
-            self.streams[key] = (seq, up, now)
-            return True
-        last_seq, last_up, _ = prev
-        if up < last_up:                                           # rule 4: sender restarted
-            self.restarts += 1
-            self.streams[key] = (seq, up, now)
-            return True
-        diff = (seq - last_seq) % SEQ_MOD
-        if diff == 0 or diff >= SEQ_MOD // 2:                      # rule 5 duplicate / rule 7 late
-            self.dropped += 1
-            return False
-        self.lost += diff - 1                                      # rules 6 and 8 (wrap-safe)
-        self.streams[key] = (seq, up, now)
-        return True
 
 
 class MotorMixer:

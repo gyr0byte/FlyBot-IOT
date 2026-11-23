@@ -7,7 +7,7 @@ os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame  # noqa: E402
 
 from flybot_sim.config import load_scenario  # noqa: E402
-from flybot_sim.contract import Contract  # noqa: E402
+from flybot_contract import Contract  # noqa: E402
 from flybot_sim.link import FakeLink  # noqa: E402
 from flybot_sim.sim import Simulation  # noqa: E402
 from flybot_sim.view import LiveView  # noqa: E402

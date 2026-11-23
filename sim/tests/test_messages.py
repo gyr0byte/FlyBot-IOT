@@ -4,7 +4,7 @@ import json
 import pytest
 
 from flybot_sim.config import load_scenario
-from flybot_sim.contract import Contract, ContractError, Outbox, offline_status
+from flybot_contract import Contract, ContractError, Outbox, offline_status
 from flybot_sim.link import FakeLink
 from flybot_sim.sim import Simulation
 

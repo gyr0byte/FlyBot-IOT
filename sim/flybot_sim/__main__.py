@@ -16,7 +16,7 @@ import sys
 import time
 
 from .config import MqttSettings, load_scenario
-from .contract import Contract
+from flybot_contract import Contract
 from .link import Link
 from .runner import run_lockstep, run_realtime, trial_done
 from .sim import Simulation

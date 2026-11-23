@@ -17,7 +17,7 @@ import numpy as np
 
 from . import FIRMWARE_VERSION
 from .config import Scenario
-from .contract import Contract, ContractError, Outbox
+from flybot_contract import Contract, ContractError, Outbox
 from .edge import BOOT, CLOUD, ESCAPE, FALLBACK, MODE_AUTO, Edge
 from .edge_config import EdgeConfig
 from .edge_sensing import BatteryMonitor, DistanceFilter, OdourChannel
