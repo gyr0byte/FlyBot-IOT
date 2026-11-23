@@ -1,0 +1,12 @@
+# Night: the light sensor reads dark from the start (the brain should go to sleep).
+name: night
+seed: 5
+duration_s: 60
+
+light: {day: false}
+
+sources:
+  - {x: 1.60, y: 1.60, strength: 1.0, spread_m: 0.35}
+
+start_positions:
+  - {x: 0.30, y: 0.30, heading_deg: 45}

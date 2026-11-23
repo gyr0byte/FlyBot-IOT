@@ -1,0 +1,18 @@
+# Default scenario: one odour source in the far corner, one obstacle, daylight.
+# Anything not listed uses the defaults in sim/flybot_sim/config.py.
+name: default
+seed: 42
+duration_s: 60
+success_radius_m: 0.15
+
+sources:
+  - {x: 1.60, y: 1.60, strength: 1.0, spread_m: 0.35}
+
+obstacles:
+  - {type: circle, x: 1.00, y: 1.00, r: 0.10}
+
+start_positions:
+  - {x: 0.30, y: 0.30, heading_deg: 45}
+  - {x: 0.30, y: 1.70, heading_deg: -45}
+  - {x: 1.70, y: 0.30, heading_deg: 135}
+  - {x: 1.00, y: 0.25, heading_deg: 90}

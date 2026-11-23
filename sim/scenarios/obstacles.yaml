@@ -1,0 +1,18 @@
+# Cluttered arena: the source sits behind a wall segment and two posts.
+name: obstacles
+seed: 7
+duration_s: 90
+success_radius_m: 0.15
+
+sources:
+  - {x: 1.65, y: 1.65, strength: 1.0, spread_m: 0.35}
+
+obstacles:
+  - {type: rect, x: 0.90, y: 1.10, w: 0.60, h: 0.06}   # wall segment in front of the source
+  - {type: circle, x: 0.70, y: 0.70, r: 0.08}
+  - {type: circle, x: 1.40, y: 0.60, r: 0.08}
+
+start_positions:
+  - {x: 0.25, y: 0.25, heading_deg: 45}
+  - {x: 0.25, y: 1.75, heading_deg: -30}
+  - {x: 1.75, y: 0.25, heading_deg: 120}

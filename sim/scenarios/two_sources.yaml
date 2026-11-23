@@ -1,0 +1,14 @@
+# Two sources of different strength: a strong one and a weak decoy.
+name: two_sources
+seed: 11
+duration_s: 90
+success_radius_m: 0.15
+
+sources:
+  - {x: 1.60, y: 1.60, strength: 1.0, spread_m: 0.35}
+  - {x: 0.40, y: 1.60, strength: 0.4, spread_m: 0.25}
+
+start_positions:
+  - {x: 1.00, y: 0.25, heading_deg: 90}
+  - {x: 0.25, y: 0.25, heading_deg: 60}
+  - {x: 1.75, y: 0.25, heading_deg: 120}

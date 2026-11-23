@@ -64,3 +64,5 @@ data/
 Thumbs.db
 Desktop.ini
 .DS_Store
+# Simulator batch results (CSV)
+sim/results/
