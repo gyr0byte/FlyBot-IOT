@@ -38,9 +38,9 @@ program and uses the `brain` connection.
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
 | `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 1 |
 | `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 1 |
-| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 1 |
+| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 2 |
 | `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` | 1 |
-| `brain/control` | dashboard, bot | brain, dashboard | 1 | no | on user action | `brain-control` | 1 |
+| `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 2 |
 | `brain/sleep` | dashboard, bot | brain only | 1 | no | on user action | `brain-sleep` | 1 |
 | `ping` | robot | brain | 0 | no | 1 Hz | `ping` | 1 |
 | `pong` | brain | robot | 0 | no | once per ping, immediately | `pong` | 1 |
@@ -70,7 +70,7 @@ Every message starts with these three fields:
 | `seq` | integer | – | 0 … 4294967295 | Sequence number, counted **per sender, per topic**. Starts at 0 when the sender starts, +1 per message, wraps to 0 after 4294967295. |
 | `up` | integer | ms | 0 … 9007199254740991 | Sender's uptime when the message was created. |
 
-**`src` field.** Topics with more than one publisher (`cmd/mode`, `reward`, `brain/control`, `brain/sleep`)
+**`src` field.** Topics with more than one publisher (`cmd/mode`, `reward`, `brain/sleep`)
 also carry `src`, so receivers can keep a separate `seq` stream per sender and the logger
 knows who acted. MQTT does not tell subscribers who published a message, so `src` is
 **bookkeeping only**. The broker's access-control list (§4) decides who may publish.
@@ -288,20 +288,20 @@ Brain → dashboard, bot. QoS 0, not retained, 5 Hz.
 | `les` | array of string | – | unique, from the lesion targets in §3.12 | – | Groups currently switched off. |
 | `pref` | object | – | keys `odr`, `lt` (both *optional*), each −1.00 … 1.00 | 2 | Learned preference per cue: + approach, − avoid. Empty `{}` before learning exists. |
 | `rs` | integer \| null | – | 0 … 4294967295 | 0 | `seq` of the newest `sensors` message used. `null` before the first one. |
-| `ack` | object \| null | – | `{"src": "dash"\|"bot", "seq": int, "ok": bool}` | – | Result of the last `brain/control` message handled. `null` if none since start. |
+| `ack` | object \| null | – | `{"seq": int, "ok": bool}` | – | Result of the last `brain/control` message handled (`seq` is that message's `seq`). `null` if none since start. |
 
 `spk` keys (all *optional*): `rl`, `rr` receptor left/right · `pl`, `pr` projection left/right ·
 `ln` antennal-lobe local inhibitory · `kc` Kenyon cells · `apl` global inhibitory ·
 `ma`, `mv` output approach/avoid · `dp`, `dn` dopamine reward/punish.
 
 ```json
-{"v":1,"seq":2210,"up":442100,"hun":0.63,"fear":0.08,"slp":false,"dec":"seek","why":["odour_l","hunger"],"spk":{"rl":41,"rr":22,"pl":18,"pr":7,"ln":12,"kc":96,"apl":3,"ma":5,"mv":1},"les":[],"pref":{"odr":0.4,"lt":-0.6},"rs":1042,"ack":{"src":"dash","seq":12,"ok":true}}
+{"v":2,"seq":2210,"up":442100,"hun":0.63,"fear":0.08,"slp":false,"dec":"seek","why":["odour_l","hunger"],"spk":{"rl":41,"rr":22,"pl":18,"pr":7,"ln":12,"kc":96,"apl":3,"ma":5,"mv":1},"les":[],"pref":{"odr":0.4,"lt":-0.6},"rs":1042,"ack":{"seq":12,"ok":true}}
 ```
-About 270 bytes at 5 Hz.
+About 260 bytes at 5 Hz.
 
 At startup, before the first sensor message and before any network layer exists:
 ```json
-{"v":1,"seq":0,"up":210,"hun":0.0,"fear":0.0,"slp":false,"dec":"stale","why":[],"spk":{},"les":[],"pref":{},"rs":null,"ack":null}
+{"v":2,"seq":0,"up":210,"hun":0.0,"fear":0.0,"slp":false,"dec":"stale","why":[],"spk":{},"les":[],"pref":{},"rs":null,"ack":null}
 ```
 
 ### 3.11 `flybot/01/brain/weights`
@@ -329,14 +329,15 @@ About 14 KB for 2,000 Kenyon cells.
 
 ### 3.12 `flybot/01/brain/control`
 
-Dashboard, bot → brain. QoS 1, **not retained**, on user action. The brain reports the result in
-`brain/state.ack`, and changes to lesions or controller in `brain/state.les` and `brain/status.ctrl`.
+Dashboard → brain. QoS 1, **not retained**, on user action. **Only the `dashboard` user may
+publish it** (the bot cannot; sleep and wake go through `brain/sleep`, §3.13). Single publisher,
+so there is no `src`. The brain reports the result in `brain/state.ack`, and changes to lesions or
+controller in `brain/state.les` and `brain/status.ctrl`.
 
 | Key | Type | Unit | Range | Meaning |
 |---|---|---|---|---|
 | `v`, `seq`, `up` | | | | Common fields. |
-| `src` | string | – | `dash`, `bot` | Who sent it. |
-| `c` | string | – | `lesion`, `param`, `save`, `load`, `reset`, `sleep` | Command. |
+| `c` | string | – | `lesion`, `param`, `save`, `load`, `reset` | Command. |
 
 Extra keys per command (each command allows **only** its own keys):
 
@@ -349,18 +350,16 @@ Extra keys per command (each command allows **only** its own keys):
 | `save` | `name` | string, *optional* | `^[a-z0-9_-]{1,32}$` | Snapshot name. Default `latest`. |
 | `load` | `name` | string, *optional* | `^[a-z0-9_-]{1,32}$` | Snapshot name. Default `latest`. |
 | `reset` | `what` | string | `weights`, `state`, `all` | What to reset: learned weights, internal state (hunger, fear, habituation), or both. |
-| `sleep` | `s` | boolean | | Request sleep (`true`) or wake (`false`). The brain then publishes `cmd/sleep` with `why:"user"`. |
 
 ```json
-{"v":1,"seq":12,"up":98000,"src":"dash","c":"lesion","tgt":"mb","off":true}
+{"v":2,"seq":12,"up":98000,"c":"lesion","tgt":"mb","off":true}
 ```
 Other commands:
 ```json
-{"v":1,"seq":13,"up":99500,"src":"dash","c":"param","k":"ctrl","val":"neural"}
-{"v":1,"seq":14,"up":101000,"src":"dash","c":"save","name":"after_training"}
-{"v":1,"seq":15,"up":102000,"src":"dash","c":"load"}
-{"v":1,"seq":16,"up":103000,"src":"dash","c":"reset","what":"weights"}
-{"v":1,"seq":2,"up":45000,"src":"bot","c":"sleep","s":true}
+{"v":2,"seq":13,"up":99500,"c":"param","k":"ctrl","val":"neural"}
+{"v":2,"seq":14,"up":101000,"c":"save","name":"after_training"}
+{"v":2,"seq":15,"up":102000,"c":"load"}
+{"v":2,"seq":16,"up":103000,"c":"reset","what":"weights"}
 ```
 
 ### 3.13 `flybot/01/brain/sleep`
@@ -412,7 +411,8 @@ Anonymous access is disabled. Each program connects as its own user (passwords i
 firmware credentials in `firmware/include/secrets.h`). The broker enforces the table below. It
 decides who may drive the robot: only `brain` can publish `cmd/motor`, only `dashboard` can
 publish `cmd/manual`, only `dashboard` and `bot` can publish `cmd/mode`, only `brain` can publish
-`cmd/sleep`, and only `dashboard` and `bot` can publish `brain/sleep`, which only `brain` can read.
+`cmd/sleep`, only `dashboard` and `bot` can publish `brain/sleep`, which only `brain` can read,
+and only `dashboard` can publish `brain/control`.
 
 P = may publish, S = may subscribe, – = neither.
 
@@ -429,16 +429,15 @@ P = may publish, S = may subscribe, – = neither.
 | `brain/status` | – | – | P S | S | S |
 | `brain/state` | – | – | P S | S | S |
 | `brain/weights` | – | – | P S | S | – |
-| `brain/control` | – | – | S | P S | P |
+| `brain/control` | – | – | S | P S | – |
 | `brain/sleep` | – | – | S | P | P |
 | `ping` | P | P | S | S | – |
 | `pong` | S | S | P S | S | – |
 
 `brain` reads `flybot/01/#` (every topic, for the logger). `dashboard` reads an explicit list:
 every topic except `brain/sleep`.
-`bot` publishes `brain/control` only for `/sleep` and `/wake`, but the ACL cannot restrict
-payloads, so the bot could also send other control commands. The bot is locked to the allowed
-Telegram chat ID.
+`bot` can change mode, send rewards and ask the brain to sleep or wake, but cannot lesion,
+change parameters, save, load or reset the brain. It is also locked to the allowed Telegram chat ID.
 
 ### 4.1 Mosquitto ACL
 
@@ -506,7 +505,6 @@ topic read flybot/01/brain/status
 topic read flybot/01/brain/state
 topic write flybot/01/cmd/mode
 topic write flybot/01/reward
-topic write flybot/01/brain/control
 topic write flybot/01/brain/sleep
 ```
 
@@ -573,7 +571,7 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
 1. **Validate** every message against its schema. Invalid → drop, count per topic, log.
 2. **Unknown version:** a `v` the receiver does not know → drop, count separately, log.
 3. **Streams.** Sequence numbers are tracked per stream. A stream is the topic, plus `src`
-   on topics that have it (`cmd/mode`, `reward`, `brain/control`, `brain/sleep`). For each stream keep the last `seq` and `up`.
+   on topics that have it (`cmd/mode`, `reward`, `brain/sleep`). For each stream keep the last `seq` and `up`.
 4. **Reboot detection.** `seq` restarts at 0 when a sender starts. **If `up` is lower than the
    last `up` seen on that stream, the sender restarted**: reset the stream and **do not count the
    jump in `seq` as lost messages**. The logger records the restart.
@@ -639,11 +637,13 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 - No anonymous clients. One user per program. The ACL (§4), not any payload field, controls who can drive.
 - `src` fields are self-declared bookkeeping and are not trusted for authorisation.
 - **The dashboard's MQTT password reaches the browser**, because the browser connects to the broker
-  directly. Anyone who can open the dashboard can change mode, drive manually, reward, and send brain
-  control commands, though never `cmd/motor` or `cmd/sleep`. So the dashboard needs its own login,
+  directly. Anyone who can open the dashboard can change mode, drive manually, reward, request
+  sleep and send brain control commands, though never `cmd/motor` or `cmd/sleep`. So the dashboard needs its own login,
   and in production only TLS ports (8883 MQTT, 8884 secure WebSockets) are open.
   A later option is to proxy through the Next.js server so the password stays server-side.
-- The Telegram bot answers only the chat ID in `TELEGRAM_ALLOWED_CHAT_ID`.
+- The Telegram bot answers only the chat ID in `TELEGRAM_ALLOWED_CHAT_ID`. Even if the bot is
+  compromised, the ACL limits it to `cmd/mode`, `reward` and `brain/sleep`. It cannot reset or
+  lesion the brain.
 
 ---
 
@@ -652,4 +652,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | Revision | Date | Change |
 |---|---|---|
 | 1 | 2026-11-23 | First version. All message types at `v = 1`. |
-| 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. |
+| 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. |
