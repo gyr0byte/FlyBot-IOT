@@ -398,3 +398,16 @@ def test_stream_tracker_forgets_idle_senders():
     t.accept(("x",), 50, 100, 0)
     assert t.accept(("x",), 3, 200, 5000)    # forgotten: starts again, no loss
     assert t.lost == 0
+
+
+def test_object_suddenly_appearing_is_not_counted_as_approach():
+    """A reading jumping from far to near (something appeared) must not count as a looming hit."""
+    h = Harness().boot()
+    h.drive_brain(200, 0.0, 0.0)
+    h.e.on_distance(195.0, 195.0, h.now)
+    h.run(40)
+    h.e.on_distance(60.0, 60.0, h.now)          # 3375 cm/s: an appearance, not an approach
+    assert h.e.loom_hits == 0
+    h.run(40)
+    h.e.on_distance(56.0, 56.0, h.now)          # now a real approach (100 cm/s)
+    assert h.e.loom_hits == 1 and h.e.state == CLOUD

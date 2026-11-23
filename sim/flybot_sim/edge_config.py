@@ -31,6 +31,7 @@ class EdgeConfig:
     loom_range_cm: float = 80.0          # only react to objects closer than this
     loom_ttc_ms: float = 700.0           # time-to-contact threshold
     loom_min_speed_cm_s: float = 40.0    # object's own approach speed (after removing our motion)
+    loom_max_speed_cm_s: float = 400.0   # faster than this = an object appearing, not approaching
     loom_agree: int = 2                  # consecutive readings that must agree
     ego_speed_cm_s: float = 30.0         # our forward speed at motor output 1.0 (calibrate on the robot)
     escape_reverse_ms: int = 400

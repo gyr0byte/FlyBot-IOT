@@ -296,7 +296,10 @@ class Edge:
                 closing = (pd - raw_cm) * 1000.0 / dt                 # cm/s, positive = getting closer
                 own = cfg.ego_speed_cm_s * (self.out[0] + self.out[1]) / 2.0
                 obj = closing - own                                   # the object's own approach speed
-                if raw_cm < cfg.loom_range_cm and obj > cfg.loom_min_speed_cm_s:
+                if obj > cfg.loom_max_speed_cm_s:
+                    ttc = None
+                    self.loom_hits = 0                                # a jump: something appeared
+                elif raw_cm < cfg.loom_range_cm and obj > cfg.loom_min_speed_cm_s:
                     ttc = raw_cm / obj * 1000.0
                     self.loom_hits = self.loom_hits + 1 if ttc < cfg.loom_ttc_ms else 0
                 else:
