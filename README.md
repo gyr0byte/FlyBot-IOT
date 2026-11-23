@@ -81,8 +81,8 @@ in `firmware/include/secrets.h` (git-ignored).
 |---|---|---|
 | 0 | Repository, conventions, `.gitignore`, `.env.example` | ✅ done |
 | 1 | Message contract + JSON Schemas | ✅ done (contract revision 3) |
-| 2 | Local Mosquitto broker with users and ACL | next |
-| 3 | Simulator | not started |
+| 2 | Local Mosquitto broker with users and ACL | ✅ done (Mosquitto 2.1.4, ACL test 182/182) |
+| 3 | Simulator | next |
 | 4 | Brain skeleton + rule-based baseline | not started |
 | 5 | Neural brain | not started |
 | 6 | ESP32 firmware | not started (waiting for parts) |
