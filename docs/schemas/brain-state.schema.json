@@ -11,7 +11,7 @@
     "hun": { "type": "number", "minimum": 0, "maximum": 1, "description": "Hunger 0-1 (2 dp)." },
     "fear": { "type": "number", "minimum": 0, "maximum": 1, "description": "Fear 0-1 (2 dp)." },
     "slp": { "type": "boolean", "description": "Brain is asleep." },
-    "dec": { "enum": ["seek", "explore", "approach", "avoid", "freeze", "eat", "sleep", "stale", "paused"], "description": "Current decision." },
+    "dec": { "enum": ["seek", "explore", "approach", "avoid", "freeze", "eat", "sleep", "stale", "paused"], "description": "Current decision. stale = sensor data older than 250 ms (or none yet): the brain is NOT publishing cmd/motor. paused = mode is not auto." },
     "why": {
       "type": "array",
       "maxItems": 3,

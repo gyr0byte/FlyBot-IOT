@@ -37,7 +37,7 @@ program and uses the `brain` connection.
 | `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` | 1 |
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
 | `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 1 |
-| `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 1 |
+| `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 2 |
 | `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 2 |
 | `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` | 1 |
 | `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 2 |
@@ -177,6 +177,10 @@ Last will:
 Brain → robot (dashboard watches). QoS 0, not retained, one per brain tick (20 Hz).
 **Only the `brain` user may publish it.** The robot obeys it only in `auto` mode and not while asleep (§5).
 
+The brain publishes `cmd/motor` **only when it has a real decision**. While its sensor data is
+stale, while the mode is not `auto`, or while it is asleep, it publishes nothing on this topic. It
+never sends filler or "stop" commands. That silence lets the robot's own 500 ms watchdog take over (§5).
+
 | Key | Type | Unit | Range | Dec. | Meaning |
 |---|---|---|---|---|---|
 | `v`, `seq`, `up` | | | | | Common fields. |
@@ -261,15 +265,20 @@ offline message below (QoS 1, retained), registered by the brain when it connect
 | `ctrl` | string | – | `baseline`, `neural` | – | Active controller. |
 | `tick` | number | ms | 0.0 … 10000.0 | 1 | Mean compute time per control tick over the last 10 s (budget: 50 ms). |
 | `ovr` | integer | – | 0 … 1000 | 0 | Ticks over budget in the last 10 s. |
+| `sens` | string | – | `ok`, `stale`, `none` | – | Sensor input: `ok` = fresh, `stale` = newest `sensors` message older than 250 ms (brain is silent on `cmd/motor`), `none` = no sensor message since the brain started. A change publishes `brain/status` immediately. |
 
 When `st` is `offline` the message has **only** `v`, `seq`, `up`, `st` (`seq` 0, `up` at connect).
 
 ```json
-{"v":1,"seq":31,"up":310050,"st":"online","ctrl":"neural","tick":6.8,"ovr":0}
+{"v":2,"seq":31,"up":310050,"st":"online","ctrl":"neural","tick":6.8,"ovr":0,"sens":"ok"}
+```
+Sensor data has gone stale:
+```json
+{"v":2,"seq":32,"up":312400,"st":"online","ctrl":"neural","tick":6.5,"ovr":0,"sens":"stale"}
 ```
 Last will:
 ```json
-{"v":1,"seq":0,"up":1520,"st":"offline"}
+{"v":2,"seq":0,"up":1520,"st":"offline"}
 ```
 
 ### 3.10 `flybot/01/brain/state`
@@ -282,7 +291,7 @@ Brain → dashboard, bot. QoS 0, not retained, 5 Hz.
 | `hun` | number | – | 0.00 … 1.00 | 2 | Hunger. |
 | `fear` | number | – | 0.00 … 1.00 | 2 | Fear. |
 | `slp` | boolean | – | | – | Brain is asleep. |
-| `dec` | string | – | `seek`, `explore`, `approach`, `avoid`, `freeze`, `eat`, `sleep`, `stale`, `paused` | – | Current decision. `stale` = sensor data too old, sending stop. `paused` = mode is not `auto`. |
+| `dec` | string | – | `seek`, `explore`, `approach`, `avoid`, `freeze`, `eat`, `sleep`, `stale`, `paused` | – | Current decision. `stale` = sensor data older than 250 ms (or none yet). The brain is **not** publishing `cmd/motor`, and the robot's watchdog takes over. `paused` = mode is not `auto`. |
 | `why` | array of string | – | 0–3 items, each `^[a-z][a-z0-9_]{0,15}$` | – | Main contributors to the decision, strongest first (e.g. `odour_l`, `hunger`, `fear`, `avoid`). |
 | `spk` | object | spikes | keys below, each integer 0 … 100000 | 0 | Spikes per neuron group in the last 200 ms. A group that is not built yet is left out. Empty `{}` with the baseline controller. |
 | `les` | array of string | – | unique, from the lesion targets in §3.12 | – | Groups currently switched off. |
@@ -532,7 +541,7 @@ starts in `auto`.
 
 | Mode | `cmd/motor` | `cmd/manual` | `cmd/sleep` | Edge reflexes | No valid command for 500 ms |
 |---|---|---|---|---|---|
-| `auto` | obeyed | ignored | obeyed | on | enter `fallback` (local wandering) |
+| `auto` | obeyed | ignored | obeyed | on | enter `fallback` (local wandering). This includes the brain going silent because its sensor data is stale. |
 | `manual` | ignored | obeyed | ignored | on | stop and wait |
 | `estop` | ignored | ignored | ignored | off, motors disabled | stay stopped |
 
@@ -545,9 +554,13 @@ starts in `auto`.
 - **Command time-to-live:** a command applies from its arrival until arrival + `ttl`, or until a
   newer command replaces it. When `ttl` runs out the motors stop.
 - **Leaving fallback:** after 3 consecutive valid `cmd/motor` messages.
-- **Brain side:** the brain stops publishing `cmd/motor` while the mode is not `auto` or it is
-  asleep (`brain/state.dec` = `paused` / `sleep`). If its newest sensor message is older than
-  250 ms it sends stop commands (`l:0, r:0`) with `dec:"stale"`.
+- **Brain side:** the brain publishes **no** `cmd/motor` while the mode is not `auto`
+  (`dec:"paused"`), while asleep (`dec:"sleep"`), or while its sensor data is stale
+  (`dec:"stale"`, `brain/status.sens:"stale"`). It never sends stop commands to cover a gap. In
+  `auto` mode the robot's 500 ms watchdog then moves it to `fallback`, where it keeps moving
+  safely on local sensors. A robot whose sensor messages are not reaching the brain therefore
+  wanders and avoids obstacles instead of standing still. When fresh sensor data returns, the
+  brain resumes, and the robot leaves fallback by the rule below.
 
 `status.st` values:
 
@@ -587,6 +600,13 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
    connect time, so they are left out of sequence tracking.
 10. **Retained messages** delivered on subscribe are treated as current state and do not
     start loss counting.
+11. **Brain: stale sensor input.** The brain treats `sensors` as stale when the newest valid
+    message arrived more than 250 ms ago, or none has arrived since it started. While stale it
+    **stops publishing `cmd/motor` entirely**: no stop or zero commands. It reports
+    `brain/state.dec:"stale"` and `brain/status.sens:"stale"` (or `"none"`), and publishes
+    `brain/status` at once on every change. Normal publishing resumes on the first fresh message.
+12. **Robot: silence is a signal.** The robot does not expect the brain to say "stop". An
+    absence of valid `cmd/motor` is handled only by the time-to-live and the 500 ms watchdog (§5).
 
 ---
 
@@ -600,7 +620,7 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
 | `cmd/motor` / `cmd/manual` time-to-live | 300 ms default (50–1000 allowed) |
 | Robot command watchdog | no valid command for 500 ms → `fallback` (auto) or stop (manual) |
 | Leave fallback | 3 consecutive valid `cmd/motor` messages |
-| Brain stale-sensor limit | 250 ms since newest `sensors` → send stop, `dec:"stale"` |
+| Brain stale-sensor limit | 250 ms since newest `sensors` → stop publishing `cmd/motor`, `dec:"stale"`, `sens:"stale"`; robot enters `fallback` about 500 ms after the last command it received |
 | `cmd/manual` rate | 10 Hz while the drive pad is held; one stop message on release |
 | `cmd/sleep` | on change; repeated every 5 s while asleep; robot wakes after 15 s without a repeat |
 | `brain/state` rate | 5 Hz |
@@ -652,4 +672,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | Revision | Date | Change |
 |---|---|---|
 | 1 | 2026-11-23 | First version. All message types at `v = 1`. |
-| 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. |
+| 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. Stale sensor data: the brain stops publishing `cmd/motor` instead of sending stop commands, so the robot's watchdog moves it to fallback. `brain/status` → `v = 2`: new `sens` field (`ok`/`stale`/`none`). |
