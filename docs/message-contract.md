@@ -536,8 +536,8 @@ The ESP32 uses ESP-IDF `esp-mqtt` (QoS 1 publish, last will, TLS).
 
 ## 5. Who drives the robot
 
-The robot's mode comes from the retained `cmd/mode`. If nothing is retained (a fresh broker), it
-starts in `auto`.
+The robot's mode comes from the retained `cmd/mode`. The defaults in §5.1 are defined behaviour:
+the firmware and the simulator must implement them exactly.
 
 | Mode | `cmd/motor` | `cmd/manual` | `cmd/sleep` | Edge reflexes | No valid command for 500 ms |
 |---|---|---|---|---|---|
@@ -547,13 +547,12 @@ starts in `auto`.
 
 - **Emergency stop** latches until a `cmd/mode` of `auto` or `manual` arrives. Because
   `cmd/mode` is retained and only the dashboard and bot can publish it, nothing else can clear an e-stop.
-- **Sleep** (`auto` mode + `cmd/sleep s:true`): motors off, `cmd/motor` ignored, reflexes off,
-  no fallback. The robot wakes on `s:false`, when the mode changes, or after 15 s with no
-  repeated `s:true` (the brain is probably gone).
+- **Sleep** (`auto` mode + `cmd/sleep s:true`): see §5.1 (3). The robot wakes on `s:false`, when
+  the mode changes, or after 15 s with no repeated `s:true` (the brain is probably gone).
 - **Escape** overrides `cmd/motor` and `cmd/manual` for its duration, in `auto` and `manual`.
 - **Command time-to-live:** a command applies from its arrival until arrival + `ttl`, or until a
   newer command replaces it. When `ttl` runs out the motors stop.
-- **Leaving fallback:** after 3 consecutive valid `cmd/motor` messages.
+- **Leaving fallback:** see §5.1 (4).
 - **Brain side:** the brain publishes **no** `cmd/motor` while the mode is not `auto`
   (`dec:"paused"`), while asleep (`dec:"sleep"`), or while its sensor data is stale
   (`dec:"stale"`, `brain/status.sens:"stale"`). It never sends stop commands to cover a gap. In
@@ -561,6 +560,26 @@ starts in `auto`.
   safely on local sensors. A robot whose sensor messages are not reaching the brain therefore
   wanders and avoids obstacles instead of standing still. When fresh sensor data returns, the
   brain resumes, and the robot leaves fallback by the rule below.
+
+### 5.1 Defined defaults
+
+1. **Start in `auto` when no mode is saved.** After connecting and subscribing, the robot waits up
+   to **2 s** for the retained `cmd/mode` (it stays in `boot` meanwhile). If none arrives, it
+   behaves as if `auto` had been received. It does **not** publish `cmd/mode` itself (it has no
+   right to), so the broker still holds nothing until the dashboard or bot sets a mode. A
+   retained `estop` always wins: it arrives on subscribe and is applied before the robot moves.
+2. **Stop in `manual` when there are no commands.** In `manual` mode, when no valid
+   `cmd/manual` has arrived for 500 ms (or the last one's `ttl` has expired), the motors stop and
+   the robot stays in `manual` (`st:"manual"`). It does **not** enter `fallback` and does not
+   wander. Edge reflexes stay on.
+3. **Reflexes off while asleep.** In `sleep` the motors are off and the looming escape and
+   obstacle stop are disabled. `cmd/motor` is ignored and the 500 ms watchdog does not trigger
+   `fallback`. The robot keeps publishing `sensors`, `status` and `ping`, so the brain can see
+   the light come back.
+4. **Leave fallback after 3 good commands.** From `fallback`, the robot returns to `cloud` after
+   **3 consecutive valid `cmd/motor` messages**. Valid = passes the schema, known `v`, newer `seq`
+   (§6). Consecutive = each arrives within the previous one's `ttl`. An invalid message or a gap
+   longer than `ttl` resets the count to 0. The robot then publishes `fallback_off` and `status`.
 
 `status.st` values:
 
@@ -619,7 +638,8 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
 | `cmd/motor` rate | one per brain tick |
 | `cmd/motor` / `cmd/manual` time-to-live | 300 ms default (50–1000 allowed) |
 | Robot command watchdog | no valid command for 500 ms → `fallback` (auto) or stop (manual) |
-| Leave fallback | 3 consecutive valid `cmd/motor` messages |
+| Leave fallback | 3 consecutive valid `cmd/motor` messages, each within the previous one's `ttl` (§5.1) |
+| Mode at start-up | retained `cmd/mode` if it arrives within 2 s of subscribing, else `auto` (§5.1) |
 | Brain stale-sensor limit | 250 ms since newest `sensors` → stop publishing `cmd/motor`, `dec:"stale"`, `sens:"stale"`; robot enters `fallback` about 500 ms after the last command it received |
 | `cmd/manual` rate | 10 Hz while the drive pad is held; one stop message on release |
 | `cmd/sleep` | on change; repeated every 5 s while asleep; robot wakes after 15 s without a repeat |
@@ -672,4 +692,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | Revision | Date | Change |
 |---|---|---|
 | 1 | 2026-11-23 | First version. All message types at `v = 1`. |
-| 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. Stale sensor data: the brain stops publishing `cmd/motor` instead of sending stop commands, so the robot's watchdog moves it to fallback. `brain/status` → `v = 2`: new `sens` field (`ok`/`stale`/`none`). |
+| 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. Stale sensor data: the brain stops publishing `cmd/motor` instead of sending stop commands, so the robot's watchdog moves it to fallback. `brain/status` → `v = 2`: new `sens` field (`ok`/`stale`/`none`). New §5.1 makes four robot defaults defined behaviour: start in `auto` if no mode arrives within 2 s, stop (not wander) in `manual` with no commands, reflexes off while asleep, leave fallback after 3 consecutive valid commands. |
