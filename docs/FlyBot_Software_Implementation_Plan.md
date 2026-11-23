@@ -42,7 +42,7 @@
 | 2 | Local broker | 1 | 0.5 day |
 | 3 | Simulator | 1, 2 | 2–3 days |
 | 4 | Brain skeleton + rule-based baseline | 1, 2, 3 | 1–2 days |
-| 5 | Neural brain (step by step) | 4 | 7–12 days |
+| 5 | Neural brain (step by step; 5.13 connectome circuit last) | 4 | 7–12 days, plus 3–5 days for 5.13 |
 | 6 | ESP32 firmware | 1, 2, hardware | 6–9 days (in parallel with 3–5) |
 | 7 | Robot–brain integration | 5 (at least 5.4), 6 | 2–4 days |
 | 8 | Logger + database | 1, 2 | 1 day |
@@ -233,6 +233,21 @@ Unit tests for message parsing, stale-data handling and the baseline rule, using
 
 Build the network one layer at a time and test each layer in the simulator before adding the next. Never add two layers at once: when something breaks, you need to know which part did it.
 
+**Order:** Phase 5 is built first with the **designed (simplified) circuit**, exactly as in steps 5.1–5.12. Only when that works end to end does step 5.13 swap in a learning circuit derived from the real FlyWire connectome.
+
+### Design rule for Phase 5: circuits are data, not code
+- The network engine (neuron model, synapses, plasticity rule, simulation loop) contains no knowledge of any particular circuit.
+- A **circuit is a set of files** loaded at start-up:
+  - neuron groups: name, size, neuron parameters, role;
+  - connection matrices between groups: sparse pre index, post index, synapse count or weight;
+  - the **sign** of every connection: excitatory +1 or inhibitory −1;
+  - which connections are plastic;
+  - how inputs and outputs bind to groups.
+- A manifest records where the circuit came from: designed by us, or a dataset with its version, licence and citations.
+- The brain config chooses the circuit (`circuit: designed` or `circuit: flywire`). Switching between them never changes engine code.
+- The designed circuit (steps 5.2–5.6) is itself written in this file format by a small generator script. Both circuits therefore go through the same loader, tests, lesion switches and dashboard views.
+- Group names map onto the contract's `brain/state.spk` keys and lesion targets, so spike reports and lesions work for either circuit.
+
 ### Step 5.1 – Neuron engine
 - Leaky integrate-and-fire neurons, simulated with a small time step (about 1 ms) inside each 50 ms control tick.
 - Neuron groups (populations) and connections between groups (weight matrices) as reusable building blocks.
@@ -314,6 +329,28 @@ Build the network one layer at a time and test each layer in the simulator befor
 
 ### Step 5.12 – Offline validation with Brian2 (optional)
 Rebuild the small circuit in Brian2 and confirm it behaves like your NumPy version. This gives a credible check and good figures for the report.
+
+### Step 5.13 – Connectome-derived learning circuit
+Replace the **designed** antennal lobe → mushroom body → output/dopamine wiring with **real neurons and connections from the FlyWire connectome**, for one brain hemisphere. Because of the design rule above, this is a new set of circuit files plus a converter; the engine does not change.
+
+- **What comes from the connectome (FlyWire):**
+  - the neurons of these groups in one hemisphere: uniglomerular projection neurons (uPNs), Kenyon cells (all subtypes), APL, mushroom body output neurons (MBONs) and dopamine neurons (DANs: PAM, PPL1, PPL2);
+  - their connections, with synapse counts as weights;
+  - signs from FlyWire's neurotransmitter predictions. Acetylcholine is excitatory and GABA inhibitory. Glutamate is usually inhibitory in flies, but the choice made is documented.
+  - The plastic KC → MBON synapses and the DAN → mushroom body compartment pattern decide which output neurons each reward or punishment signal changes.
+- **What stays designed (say so clearly in the report and the circuit manifest):**
+  - **Sensor input mapping.** The robot has two odour values and the fly about 50 glomeruli. Which glomeruli/uPNs the left and right MQ-3 drive, and how strongly, is our design choice.
+  - **Reward and punishment input.** Which DAN groups `reward` +1 and −1 activate.
+  - **Steering readout.** Grouping MBONs into approach/avoid valence and the left/right wheel readout are designed. The robot's two wheels have no counterpart in the fly's mushroom body.
+- **Data handling:**
+  - a download script fetches the public FlyWire release into a git-ignored folder on D: (raw data is never committed);
+  - a converter writes the circuit files, with a manifest recording dataset version, download date, licence and the required citations.
+- **Scale:** one hemisphere has about 2,500 Kenyon cells and a few hundred other neurons. The engine must still finish a tick well under 50 ms.
+
+**Done when:**
+- the connectome circuit runs in real time, with tick time well under 50 ms on the laptop;
+- it still seeks odour and learns in the simulator, passing the same tests as steps 5.4 and 5.6;
+- lockstep batch results for both circuits are compared in one table: success rate, time to source, learned preference before and after training.
 
 ---
 
