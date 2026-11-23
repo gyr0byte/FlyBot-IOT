@@ -1,6 +1,6 @@
 # FlyBot MQTT message contract
 
-**Contract revision:** 3 (2026-11-23). Each message type's current `v` is in the §1 table.
+**Contract revision:** 4 (2026-11-23). Each message type's current `v` is in the §1 table.
 
 This is the source of truth for every message between the FlyBot programs. Programs only
 talk through MQTT. If code and this document disagree, the code is wrong. The
@@ -32,7 +32,7 @@ program and uses the `brain` connection.
 | `sensors` | robot | brain, dashboard | 0 | no | 20 Hz (10–20 allowed) | `sensors` | 1 |
 | `events` | robot | brain, dashboard, bot | 1 | no | on occurrence | `events` | 1 |
 | `status` | robot (last will: broker) | brain, dashboard, bot | 1 | **yes** | on change + every 10 s | `status` | 1 |
-| `cmd/motor` | brain | robot, dashboard | 0 | no | every brain tick (20 Hz) | `cmd-motor` | 1 |
+| `cmd/motor` | brain | robot, dashboard | 0 | no | one per `sensors` message (20 Hz) | `cmd-motor` | 1 |
 | `cmd/manual` | dashboard | robot, brain | 0 | no | 10 Hz while driving | `cmd-manual` | 2 |
 | `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` | 2 |
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
@@ -190,7 +190,8 @@ Last will:
 
 ### 3.4 `flybot/01/cmd/motor`
 
-Brain → robot (dashboard watches). QoS 0, not retained, one per brain tick (20 Hz).
+Brain → robot (dashboard watches). QoS 0, not retained, one per brain tick, and the brain ticks once
+per `sensors` message (20 Hz, §7.1).
 **Only the `brain` user may publish it.** The robot obeys it only in `auto` mode and not while asleep (§5).
 
 The brain publishes `cmd/motor` **only when it has a real decision**. While its sensor data is
@@ -662,6 +663,8 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
     **stops publishing `cmd/motor` entirely**: no stop or zero commands. It reports
     `brain/state.dec:"stale"` and `brain/status.sens:"stale"` (or `"none"`), and publishes
     `brain/status` at once on every change. Normal publishing resumes on the first fresh message.
+    Because the brain ticks only on `sensors` messages (§7.1), it is silent on `cmd/motor` whenever
+    none arrive. The 250 ms check is a wall-clock link-health check and only drives the reporting.
 12. **Robot: silence is a signal.** The robot does not expect the brain to say "stop". An
     absence of valid `cmd/motor` is handled only by the time-to-live and the 500 ms watchdog (§5).
 13. **New and idle senders.** The first message from a sender name not seen before starts a new
@@ -677,8 +680,8 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
 | Item | Value |
 |---|---|
 | `sensors` rate | 20 Hz nominal (every 50 ms); 10–20 Hz allowed |
-| Brain control tick | 20 Hz (50 ms); compute budget per tick 50 ms, target well under |
-| `cmd/motor` rate | one per brain tick |
+| Brain control tick | one tick per `sensors` message (20 Hz from the robot); compute budget per tick 50 ms, target well under (§7.1) |
+| `cmd/motor` rate | at most one per brain tick, i.e. per `sensors` message |
 | `cmd/motor` / `cmd/manual` time-to-live | 300 ms default (50–1000 allowed) |
 | Robot command watchdog | no valid command for 500 ms → `fallback` (auto) or stop (manual) |
 | Leave fallback | 3 consecutive valid `cmd/motor` messages, each within the previous one's `ttl` (§5.1) |
@@ -695,6 +698,37 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
 
 Latency targets are measured, not guaranteed: sensor→command round-trip time is reported for the
 local and cloud setups and compared with the on-robot escape reflex time (`events.lat`).
+
+### 7.1 Time base: robot time, sensor-clocked brain, faster-than-real-time simulation
+
+1. **Robot time.** Rates and durations in this contract (sensor rate, time-to-live, watchdog,
+   repeats, hunger and fear dynamics) are measured in the **robot's clock**, the `up` of the
+   robot's messages, not in wall-clock time. On the real robot the two run at the same speed.
+   A simulator may run its clock faster than real time (point 5).
+2. **Sensor-clocked brain.** The brain runs **one control tick per `sensors` message**, not on a
+   timer of its own. All of its dynamics and every robot-facing timer (hunger, fear, habituation,
+   smoothing, the 5 s `cmd/sleep` repeat) advance by robot time taken from `sensors.up`, never by
+   the wall clock. The brain behaves identically whether the robot runs in real time or faster.
+   Only link-health checks use the wall clock: the 250 ms stale check (§6 rule 11), keep-alive and
+   ping round-trip time.
+3. **Robot time never goes backwards.** The brain keeps its own monotonic robot time by adding
+   up the positive differences between consecutive `sensors.up` values. If `up` decreases (the
+   robot rebooted), that step counts as 0 and the brain resets its sequence-number state for
+   that sender (§6 rule 4). Internal state (hunger, fear, learned weights) carries on unchanged.
+4. **Gaps.** If consecutive `sensors.up` values differ by more than **500 ms**, the brain treats it
+   as a data gap. It integrates a capped step (**100 ms**) instead of applying the whole jump to
+   its dynamics, and records the gap (logged and counted).
+5. **Lockstep (simulator only).** For fast batch runs the simulator publishes `sensors` with
+   `seq = n` and `up` = its simulated time. It then waits for the `cmd/motor` with `rs = n`
+   before simulating the next 50 ms. Nothing else changes on the wire. In `manual`, `estop` or
+   while asleep it does not wait, because no command is expected. Otherwise it waits at most
+   100 ms of real time, and after 3 such timeouts in a row it runs freely until a command arrives
+   again, so the watchdog and fallback still work without a brain.
+6. **Latency figures come only from real-time runs.** In lockstep the wire round trip has nothing
+   to do with robot time, so the simulator's `status.rtt` / `crtt` are measured in wall-clock time
+   there. Latency and round-trip results for the report are taken **only** from real-time runs. In
+   lockstep results those figures are left empty. The logger and analysis use `up`, not arrival
+   time, to place messages from fast runs on a timeline.
 
 ---
 
@@ -737,3 +771,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | 1 | 2026-11-23 | First version. All message types at `v = 1`. |
 | 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. Stale sensor data: the brain stops publishing `cmd/motor` instead of sending stop commands, so the robot's watchdog moves it to fallback. `brain/status` → `v = 2`: new `sens` field (`ok`/`stale`/`none`). New §5.1 makes four robot defaults defined behaviour: start in `auto` if no mode arrives within 2 s, stop (not wander) in `manual` with no commands, reflexes off while asleep, leave fallback after 3 consecutive valid commands. |
 | 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. `cmd/mode` → `v = 2`: `src` is `bot` or a tab name. `reward` → `v = 2`: `src` is `btn`, `bot` or a tab name. `brain/sleep` → `v = 2`: `src` is `bot` or a tab name. `brain/control` → `v = 3`: required `src` (tab name). `brain/state` → `v = 3`: `ack` has `src` again (tab name). §2 sender-name table; §6 streams are topic + sender name, new rule 13 (new and idle senders); dashboard client ID reuses the tab name. |
+| 4 | 2026-11-23 | Time base (§7.1): rates and durations are in robot time (`up`); the brain ticks once per `sensors` message and advances its dynamics by robot time only (monotonic, reboot step = 0, gaps over 500 ms capped at 100 ms); lockstep simulation; latency figures only from real-time runs. No payload or `v` changes. |
