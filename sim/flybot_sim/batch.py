@@ -16,17 +16,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .config import REPO, Scenario, load_scenario
+from .config import REPO, Scenario, check_training_starts, load_scenario, phase_starts
 from flybot_contract import Contract
 from .runner import run_lockstep, run_realtime, trial_done
 from .sim import Simulation
 
 log = logging.getLogger("flybot_sim.batch")
 
-COLUMNS = ["trial", "seed", "scenario", "mode", "controller", "start_index", "start_x", "start_y",
-           "start_heading_deg", "reached", "time_to_source_s", "path_length_m", "collisions", "escapes",
-           "fallback_time_s", "messages_lost", "rtt_median_ms", "crtt_median_ms", "sim_duration_s",
-           "wall_duration_s"]
+COLUMNS = ["trial", "seed", "scenario", "mode", "controller", "phase", "start_index", "start_x", "start_y",
+           "start_heading_deg", "reached", "reached_label", "reward_sent", "time_to_source_s", "path_length_m",
+           "collisions", "escapes", "fallback_time_s", "messages_lost", "rtt_median_ms", "crtt_median_ms",
+           "sim_duration_s", "wall_duration_s"]
 
 
 def run_trials(sc: Scenario, trials: int, controller: str, realtime: bool, out: Path,
@@ -54,8 +54,9 @@ def run_trials(sc: Scenario, trials: int, controller: str, realtime: bool, out: 
             sp = sim.start
             row = {
                 "trial": i + 1, "seed": seed, "scenario": sc.name, "mode": mode, "controller": controller,
-                "start_index": sim.start_index, "start_x": sp.x, "start_y": sp.y,
+                "phase": "", "start_index": sim.start_index, "start_x": sp.x, "start_y": sp.y,
                 "start_heading_deg": sp.heading_deg, "reached": "yes" if r["reached"] else "no",
+                "reached_label": r["reached_label"], "reward_sent": r["reward_sent"],
                 "time_to_source_s": r["time_to_source_s"], "path_length_m": r["path_length_m"],
                 "collisions": r["collisions"], "escapes": r["escapes"],
                 "fallback_time_s": r["fallback_time_s"], "messages_lost": r["messages_lost"],
@@ -69,6 +70,58 @@ def run_trials(sc: Scenario, trials: int, controller: str, realtime: bool, out: 
             log.info("trial %d/%d seed %d start %d: reached=%s time=%s path=%.2f m wall=%.1f s",
                      i + 1, trials, seed, sim.start_index, row["reached"], row["time_to_source_s"],
                      row["path_length_m"], row["wall_duration_s"])
+    return rows
+
+
+def run_experiment(sc: Scenario, controller: str, out: Path, link_factory: Callable[[Contract], object],
+                   on_phase_end: Callable[[str, list[dict]], None] | None = None) -> list[dict]:
+    """Run a scenario's experiment phases in lockstep, one animal (the brain keeps what it learns:
+    run the brain WITHOUT --reset-on-reboot). Seeds continue across phases (scenario seed + trial)."""
+    if sc.experiment is None:
+        raise ValueError(f"scenario {sc.name!r} has no experiment section")
+    problems = check_training_starts(sc)
+    if problems:
+        raise ValueError("training starts are not near their own source: " + "; ".join(problems))
+    contract = Contract()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    rows, n = [], 0
+    with out.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=COLUMNS)
+        w.writeheader()
+        for ph in sc.experiment.phases:
+            starts = phase_starts(sc, ph)
+            phase_rows = []
+            for i in range(ph.trials):
+                n += 1
+                seed = sc.seed + n
+                link = link_factory(contract)
+                sim = Simulation(sc, link, contract, seed=seed, lockstep=True, start=starts[i % len(starts)],
+                                 rewards=ph.rewards, reward_delay_s=sc.experiment.reward_delay_s,
+                                 hold_after_reward_s=sc.experiment.hold_after_reward_s)
+                wall0 = time.perf_counter()
+                try:
+                    run_lockstep(sim, trial_done(sc.duration_s))
+                finally:
+                    link.stop()
+                r, sp = sim.results(), sim.start
+                row = {"trial": n, "seed": seed, "scenario": sc.name, "mode": "lockstep", "controller": controller,
+                       "phase": ph.name, "start_index": i % len(starts), "start_x": round(sp.x, 3),
+                       "start_y": round(sp.y, 3), "start_heading_deg": round(sp.heading_deg, 1),
+                       "reached": "yes" if r["reached"] else "no", "reached_label": r["reached_label"],
+                       "reward_sent": r["reward_sent"], "time_to_source_s": r["time_to_source_s"],
+                       "path_length_m": r["path_length_m"], "collisions": r["collisions"], "escapes": r["escapes"],
+                       "fallback_time_s": r["fallback_time_s"], "messages_lost": r["messages_lost"],
+                       "rtt_median_ms": None, "crtt_median_ms": None,
+                       "sim_duration_s": round(sim.trial_time_s(), 2),
+                       "wall_duration_s": round(time.perf_counter() - wall0, 2)}
+                w.writerow({k: ("" if v is None else v) for k, v in row.items()})
+                f.flush()
+                rows.append(row)
+                phase_rows.append(row)
+                log.info("%s trial %d/%d: %s%s", ph.name, i + 1, ph.trials, row["reached_label"] or "timeout",
+                         f" (reward {row['reward_sent']:+d})" if row["reward_sent"] else "")
+            if on_phase_end:
+                on_phase_end(ph.name, phase_rows)
     return rows
 
 

@@ -90,10 +90,12 @@ class LightSensor:
         self.p = p
         self.rng = rng
 
-    def read(self, world: World) -> float | None:
+    def read(self, world: World, robot: Robot | None = None) -> float | None:
+        """Light at the position of the robot (the LDR sits on top of it)."""
         if not self.p.ldr_fitted:
             return None
-        return min(max(world.light_level() + self.rng.normal(0.0, self.p.noise), 0.0), 1.0)
+        level = world.light_level() if robot is None else world.light_level(robot.pose.x, robot.pose.y)
+        return min(max(level + self.rng.normal(0.0, self.p.noise), 0.0), 1.0)
 
 
 class Battery:

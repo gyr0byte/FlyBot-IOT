@@ -35,7 +35,8 @@ class World:
         self.w = sc.arena.width_m
         self.h = sc.arena.height_m
         self.obstacles: list[Obstacle] = list(sc.obstacles)
-        self.sources = [dict(x=s.x, y=s.y, strength=s.strength, spread=s.spread_m) for s in sc.sources]
+        self.sources = [dict(x=s.x, y=s.y, strength=s.strength, spread=s.spread_m, label=s.label)
+                        for s in sc.sources]
         self.day = sc.light.day
         self.looming: list[LoomingObject] = []
         # Patchy plume: a few random travelling waves; fixed by the scenario seed.
@@ -66,8 +67,19 @@ class World:
             c += s["strength"] / (1.0 + d2 / s["spread"] ** 2)
         return self.sc.plume.background + c * self.patch_factor(x, y, t)
 
-    def light_level(self) -> float:
-        return self.sc.light.day_level if self.day else self.sc.light.night_level
+    def light_level(self, x: float | None = None, y: float | None = None) -> float:
+        """Ambient (day/night) light, raised by any lamp (light patch) covering (x, y)."""
+        level = self.sc.light.day_level if self.day else self.sc.light.night_level
+        if x is None:
+            return level
+        base = level
+        for p in self.sc.light.patches:
+            d = math.hypot(x - p.x, y - p.y)
+            if d <= p.r:
+                level = max(level, p.level)
+            elif d < p.r + p.edge_m:
+                level = max(level, base + (p.level - base) * (1.0 - (d - p.r) / p.edge_m))
+        return level
 
     # ------------------------------------------------------------------ dynamics
 

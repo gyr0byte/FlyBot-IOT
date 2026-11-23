@@ -6,8 +6,11 @@ the YAML (converted where used), times in seconds unless the name says _ms.
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
+import math
 import os
+import types
 import typing
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,6 +79,7 @@ class Source:
     y: float
     strength: float = 1.0      # concentration at the source (arbitrary units, ~1 = strong)
     spread_m: float = 0.35     # distance at which concentration falls to half
+    label: str | None = None   # optional unique name (experiments: rewards, which source was reached)
 
 
 @dataclass
@@ -87,12 +91,23 @@ class Plume:
 
 
 @dataclass
+class LightPatch:
+    """A lamp: full `level` within radius r, fading linearly to the base level over edge_m."""
+    x: float
+    y: float
+    r: float
+    level: float = 0.9
+    edge_m: float = 0.05
+
+
+@dataclass
 class Light:
     day: bool = True
     day_level: float = 0.80
     night_level: float = 0.05
     noise: float = 0.01
     ldr_fitted: bool = True
+    patches: list[LightPatch] = field(default_factory=list)
 
 
 @dataclass
@@ -100,6 +115,32 @@ class StartPos:
     x: float
     y: float
     heading_deg: float = 0.0
+
+
+@dataclass
+class RelStart:
+    """A start position relative to a labelled source, written for a source on the LEFT half of the
+    arena; when that source is on the right half, dx and the heading are mirrored."""
+    dx: float
+    dy: float
+    heading_deg: float = 90.0
+
+
+@dataclass
+class Phase:
+    name: str
+    trials: int
+    rewards: dict[str, int] = field(default_factory=dict)     # source label -> +1 reward / -1 punishment
+    start_positions: list[StartPos] = field(default_factory=list)   # absolute (default: the scenario's)
+    relative_to: str | None = None                             # or: starts relative to this source label
+    relative_starts: list[RelStart] = field(default_factory=list)
+
+
+@dataclass
+class ExperimentCfg:
+    phases: list[Phase]
+    hold_after_reward_s: float = 2.0   # keep running after a reward, so the brain pairs it with the source
+    reward_delay_s: float = 0.0        # time between reaching the source and the button press
 
 
 @dataclass
@@ -186,6 +227,8 @@ class Scenario:
     looming: Looming = field(default_factory=Looming)
     timing: Timing = field(default_factory=Timing)
     edge: dict[str, Any] = field(default_factory=dict)  # overrides for edge.EdgeConfig
+    goal: str = "first"            # first: reach sources[0]; any: the first source reached ends the trial
+    experiment: ExperimentCfg | None = None
 
 
 def _build(cls, data: Any, where: str):
@@ -203,7 +246,10 @@ def _build(cls, data: Any, where: str):
     for name, value in data.items():
         t = hints[name]
         origin = typing.get_origin(t)
-        if origin is list:
+        if origin in (typing.Union, types.UnionType):                    # X | None
+            inner = [a for a in typing.get_args(t) if a is not type(None)]
+            kwargs[name] = None if value is None else _build(inner[0], value, f"{where}.{name}")
+        elif origin is list:
             (item_t,) = typing.get_args(t)
             kwargs[name] = [_build(item_t, v, f"{where}.{name}[{i}]") for i, v in enumerate(value)]
         elif origin is tuple:
@@ -225,4 +271,85 @@ def load_scenario(name_or_path: str | Path) -> Scenario:
         raise ValueError(f"{p.name}: at least one odour source is required")
     if not sc.start_positions:
         raise ValueError(f"{p.name}: at least one start position is required")
+    validate(sc, p.name)
     return sc
+
+
+def validate(sc: Scenario, where: str) -> None:
+    labels = [s.label for s in sc.sources if s.label]
+    if len(labels) != len(set(labels)):
+        raise ValueError(f"{where}: source labels must be unique")
+    if sc.goal not in ("first", "any"):
+        raise ValueError(f"{where}: goal must be first or any")
+    if sc.experiment is None:
+        return
+    if not sc.experiment.phases:
+        raise ValueError(f"{where}: experiment needs at least one phase")
+    for ph in sc.experiment.phases:
+        w = f"{where}: phase {ph.name!r}"
+        if ph.trials < 1:
+            raise ValueError(f"{w}: trials must be >= 1")
+        for label, r in ph.rewards.items():
+            if label not in labels:
+                raise ValueError(f"{w}: reward for unknown source label {label!r}")
+            if r not in (1, -1):
+                raise ValueError(f"{w}: reward must be 1 or -1")
+        if ph.relative_to is not None:
+            if ph.relative_to not in labels:
+                raise ValueError(f"{w}: relative_to unknown source label {ph.relative_to!r}")
+            if not ph.relative_starts or ph.start_positions:
+                raise ValueError(f"{w}: relative_to needs relative_starts (and no start_positions)")
+
+
+def source_by_label(sc: Scenario, label: str) -> Source:
+    return next(s for s in sc.sources if s.label == label)
+
+
+def phase_starts(sc: Scenario, ph: Phase) -> list[StartPos]:
+    """The absolute start positions of a phase (relative ones resolved against their source)."""
+    if ph.relative_to is None:
+        return ph.start_positions or sc.start_positions
+    src = source_by_label(sc, ph.relative_to)
+    right = src.x > sc.arena.width_m / 2
+    return [StartPos(src.x + (-r.dx if right else r.dx), src.y + r.dy,
+                     (180.0 - r.heading_deg) if right else r.heading_deg) for r in ph.relative_starts]
+
+
+def check_training_starts(sc: Scenario, max_dist_m: float = 0.8) -> list[str]:
+    """Every start of a phase with relative starts must be near its own source: closer to it than
+    to any other labelled source, and within max_dist_m. Returns the problems (empty = fine)."""
+    problems = []
+    for ph in (sc.experiment.phases if sc.experiment else []):
+        if ph.relative_to is None:
+            continue
+        own = source_by_label(sc, ph.relative_to)
+        others = [s for s in sc.sources if s.label and s.label != ph.relative_to]
+        for sp in phase_starts(sc, ph):
+            d_own = math.hypot(sp.x - own.x, sp.y - own.y)
+            d_other = min((math.hypot(sp.x - s.x, sp.y - s.y) for s in others), default=float("inf"))
+            if not (d_own < d_other and d_own <= max_dist_m):
+                problems.append(f"{sc.name} phase {ph.name}: start ({sp.x:.2f}, {sp.y:.2f}) is {d_own:.2f} m from "
+                                f"{ph.relative_to!r} and {d_other:.2f} m from the nearest other source")
+            if not (0 < sp.x < sc.arena.width_m and 0 < sp.y < sc.arena.height_m):
+                problems.append(f"{sc.name} phase {ph.name}: start ({sp.x:.2f}, {sp.y:.2f}) outside the arena")
+    return problems
+
+
+def mirror_scenario(sc: Scenario) -> Scenario:
+    """Left-right mirror image (for counterbalancing): sources, lamps, obstacles and absolute start
+    positions flip; relative starts follow their source automatically."""
+    m = copy.deepcopy(sc)
+    w = m.arena.width_m
+    m.name = sc.name + "-mirrored"
+    for s in m.sources:
+        s.x = w - s.x
+    for p in m.light.patches:
+        p.x = w - p.x
+    for ob in m.obstacles:
+        ob.x = w - ob.x - (ob.w if ob.type == "rect" else 0.0)
+    for sp in m.start_positions:
+        sp.x, sp.heading_deg = w - sp.x, 180.0 - sp.heading_deg
+    for ph in (m.experiment.phases if m.experiment else []):
+        for sp in ph.start_positions:
+            sp.x, sp.heading_deg = w - sp.x, 180.0 - sp.heading_deg
+    return m

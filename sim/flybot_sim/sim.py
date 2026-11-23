@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import FIRMWARE_VERSION
-from .config import Scenario
+from .config import Scenario, StartPos
 from flybot_contract import ROBOT_TOPICS, Contract, ContractError, Outbox
 from .edge import BOOT, CLOUD, ESCAPE, FALLBACK, MODE_AUTO, Edge
 from .edge_config import EdgeConfig
@@ -40,19 +40,28 @@ class TrialMetrics:
     crtts: deque = field(default_factory=lambda: deque(maxlen=20000))  # (t_ms, crtt_ms)
     motor_cmds: int = 0
     reward_presses: int = 0
+    reached_label: str | None = None    # which source was reached (goal "any", labelled sources)
+    reward_sent: int | None = None      # training reward published on arrival (+1 / -1)
+    done_at_ms: int | None = None       # the trial ends at this robot time (after arrival / reward hold)
 
 
 class Simulation:
     def __init__(self, sc: Scenario, link, contract: Contract | None = None, start_index: int = 0,
-                 seed: int | None = None, lockstep: bool = False):
+                 seed: int | None = None, lockstep: bool = False, start: StartPos | None = None,
+                 rewards: dict[str, int] | None = None, reward_delay_s: float = 0.0,
+                 hold_after_reward_s: float = 2.0):
         self.sc = sc
         self.seed = sc.seed if seed is None else seed
         self.lockstep = lockstep
         rngs = np.random.default_rng(self.seed).spawn(8)
         self.world = World(sc, rngs[0])
         self.start_index = start_index % len(sc.start_positions)
-        sp = sc.start_positions[self.start_index]
+        sp = start if start is not None else sc.start_positions[self.start_index]
         self.start = sp
+        self.rewards = dict(rewards or {})              # source label -> reward on arrival (training)
+        self.reward_delay_ms = int(round(reward_delay_s * 1000))
+        self.hold_ms = int(round(hold_after_reward_s * 1000))
+        self.pending_reward: tuple[int, int] | None = None   # (r, publish at robot time)
         self.robot = Robot(sc.robot, Pose(sp.x, sp.y, math.radians(sp.heading_deg)), rngs[1])
         self.odour = [OdourSensor(sc.odour, +1, rngs[2]), OdourSensor(sc.odour, -1, rngs[3])]
         self.ultrasonic = Ultrasonic(sc.ultrasonic, rngs[4])
@@ -204,6 +213,12 @@ class Simulation:
         if t % 50 == 0:
             self.trail.append((self.robot.pose.x, self.robot.pose.y))
         self._check_reached(t)
+        if self.pending_reward is not None and t >= self.pending_reward[1]:
+            r = self.pending_reward[0]
+            self.pending_reward = None
+            self.press_reward(r)                       # the training "button", src btn with our bid
+            self.m.reward_sent = r
+            self.m.done_at_ms = t + self.hold_ms
 
         if self.link.connected:
             if self.edge.status_dirty or t >= self.next_status:
@@ -223,7 +238,7 @@ class Simulation:
             v = ch.feed(self.odour[i].read_v(t / 1000.0), t)
             vals["ol" if i == 0 else "or"] = None if v is None else round(v, 3)
         self.edge.set_odour_ready(all(ch.ready for ch in self.odour_ch))
-        lt = self.light.read(self.world)
+        lt = self.light.read(self.world, self.robot)
         vals["lt"] = None if lt is None else round(lt, 2)
         bat = self.batt_mon.feed(self.battery.read_v())
         vals["bat"] = round(min(max(bat, 0.0), 10.0), 2)
@@ -273,10 +288,26 @@ class Simulation:
     def _check_reached(self, t: int) -> None:
         if self.m.reached or not self.booted():
             return
-        s = self.target()
-        if math.hypot(self.robot.pose.x - s["x"], self.robot.pose.y - s["y"]) <= self.sc.success_radius_m:
-            self.m.reached = True
-            self.m.time_to_source_s = round(self.trial_time_s(), 2)
+        candidates = self.world.sources if self.sc.goal == "any" else [self.target()]
+        for s in candidates:
+            if math.hypot(self.robot.pose.x - s["x"], self.robot.pose.y - s["y"]) <= self.sc.success_radius_m:
+                self.m.reached = True
+                self.m.reached_label = s.get("label")
+                self.m.time_to_source_s = round(self.trial_time_s(), 2)
+                r = self.rewards.get(s.get("label")) if s.get("label") else None
+                if r is not None:
+                    self.pending_reward = (r, t + self.reward_delay_ms)
+                else:
+                    self.m.done_at_ms = t
+                return
+
+    def finished(self, duration_s: float) -> bool:
+        """Trial over: arrival (plus the reward delay and hold, when training) or timeout."""
+        if not self.booted():
+            return False
+        if self.m.done_at_ms is not None and self.t_ms >= self.m.done_at_ms:
+            return True
+        return self.trial_time_s() >= duration_s and self.pending_reward is None
 
     # ------------------------------------------------------------------ results
 
@@ -299,6 +330,8 @@ class Simulation:
             "fallback_time_s": round(self.edge.stats["fallback_ms"] / 1000.0, 2),
             "messages_lost": self.lost_messages(),
             "motor_cmds": m.motor_cmds,
+            "reached_label": m.reached_label,
+            "reward_sent": m.reward_sent,
             # Latency only from real-time runs (contract section 7.1 (6)); empty in lockstep.
             "rtt_median_ms": (round(rtts[len(rtts) // 2], 1) if rtts and rt else None),
             "crtt_median_ms": (round(crtts[len(crtts) // 2], 1) if crtts and rt else None),

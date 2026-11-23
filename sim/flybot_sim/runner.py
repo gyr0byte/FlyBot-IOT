@@ -22,8 +22,9 @@ PROBE_MS = 2.0   # free run: still listen this long after each sensors message
 
 
 def trial_done(duration_s: float) -> Callable[[Simulation], bool]:
-    """A trial ends when the robot reaches the source or duration_s after boot."""
-    return lambda sim: sim.booted() and (sim.m.reached or sim.trial_time_s() >= duration_s)
+    """A trial ends when the robot reaches the source (after any training reward and its hold) or
+    duration_s after boot."""
+    return lambda sim: sim.finished(duration_s)
 
 
 def run_realtime(sim: Simulation, done: Callable[[Simulation], bool] = lambda s: False,

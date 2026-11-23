@@ -1,0 +1,39 @@
+# Learning experiment (plan step 5.6): two equal odour sources in a dark arena, one under a lamp.
+# Pre-test: which source does the robot reach? Training: arriving at the lit source triggers a
+# reward or punishment (the condition is set by sim/tools/learning_experiment.py). Post-test: again.
+# The lamp is on the LEFT here; the experiment tool mirrors the whole scenario for half the animals.
+name: learning
+seed: 100
+duration_s: 60
+success_radius_m: 0.15
+goal: any                          # a trial ends at whichever source is reached first
+
+light:
+  day: false                       # dark arena (0.05) ...
+  patches:                         # ... with one lamp over the lit source
+    - {x: 0.55, y: 1.55, r: 0.40, level: 0.90}
+
+sources:
+  - {x: 0.55, y: 1.55, strength: 1.0, spread_m: 0.35, label: lit}
+  - {x: 1.45, y: 1.55, strength: 1.0, spread_m: 0.35, label: dark}
+
+start_positions:                   # tests: on the midline, equally far from both sources
+  - {x: 1.00, y: 0.30, heading_deg: 90}
+  - {x: 0.92, y: 0.25, heading_deg: 85}
+  - {x: 1.08, y: 0.25, heading_deg: 95}
+  - {x: 1.00, y: 0.45, heading_deg: 90}
+
+experiment:
+  hold_after_reward_s: 2.0
+  reward_delay_s: 0.0
+  phases:
+    - {name: pre, trials: 8}
+    - name: train
+      trials: 15
+      rewards: {lit: -1}           # default condition: punish the lit source
+      relative_to: lit             # starts near the LIT source, wherever it is (mirrored on the right)
+      relative_starts:
+        - {dx: 0.00, dy: -0.60, heading_deg: 90}
+        - {dx: -0.20, dy: -0.55, heading_deg: 70}
+        - {dx: 0.20, dy: -0.55, heading_deg: 110}
+    - {name: post, trials: 8}
