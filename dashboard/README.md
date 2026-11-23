@@ -2,7 +2,10 @@
 
 Next.js + TypeScript web dashboard. Not yet created.
 
-Connects to the broker over WebSockets (`mqtt.js`) as MQTT user `dashboard` and shows:
+Connects to the broker over WebSockets (`mqtt.js`) as MQTT user `dashboard`. **Each tab
+generates its own sender name at page load** (`dash-` + 6 random hex, e.g. `dash-3fa2c1`). It
+uses that name in `src` on every message it sends and in its client ID `flybot-01-dash-3fa2c1`.
+It keeps the name in memory only, and its `seq` counters start at 0 (contract §2). It shows:
 
 - Robot and brain online/offline (from the retained `status` and `brain/status` topics).
 - Live sensor charts, robot state, hunger/fear gauges, battery, signal and round-trip time.

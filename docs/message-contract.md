@@ -66,14 +66,30 @@ Every message starts with these three fields:
 
 | Key | Type | Unit | Range | Meaning |
 |---|---|---|---|---|
-| `v` | integer | – | `1` | Schema version of this message type (§8). |
+| `v` | integer | – | ≥ 1, exact value per type in §1 | Schema version of this message type (§8). |
 | `seq` | integer | – | 0 … 4294967295 | Sequence number, counted **per sender, per topic**. Starts at 0 when the sender starts, +1 per message, wraps to 0 after 4294967295. |
 | `up` | integer | ms | 0 … 9007199254740991 | Sender's uptime when the message was created. |
 
-**`src` field.** Topics with more than one publisher (`cmd/mode`, `reward`, `brain/sleep`)
-also carry `src`, so receivers can keep a separate `seq` stream per sender and the logger
-knows who acted. MQTT does not tell subscribers who published a message, so `src` is
-**bookkeeping only**. The broker's access-control list (§4) decides who may publish.
+**Sender names (`src`).** MQTT does not tell subscribers who published a message. So every
+message on a topic that can have more than one sender carries `src`, the sender's name.
+Receivers keep a separate `seq` stream per sender name (§6), and the logger knows who acted.
+
+| Sender | `src` | Carried on |
+|---|---|---|
+| Robot buttons (ESP32 or simulator) | `btn` | `reward` |
+| Telegram bot | `bot` | `cmd/mode`, `reward`, `brain/sleep` |
+| **Each dashboard tab** | `dash-` + 6 lowercase hex digits, e.g. `dash-3fa2c1` (pattern `^dash-[0-9a-f]{6}$`) | **every** message the tab sends: `cmd/manual`, `cmd/mode`, `reward`, `brain/control`, `brain/sleep` |
+
+Dashboard tab names:
+- Generated **once at page load** from a cryptographic random source (`crypto.getRandomValues`)
+  and kept in memory only, not saved in browser storage. A reload or a second tab gets a new
+  name and counts as a new sender.
+- The tab's `seq` starts at 0 at page load, and `up` is ms since page load.
+- The tab's MQTT client ID uses the same name: `flybot-01-dash-3fa2c1` (§4.2).
+
+Topics with exactly one sender (robot-only or brain-only topics) carry no `src`. `src` is
+**bookkeeping only**: it is self-declared, and the broker's access-control list (§4) decides
+who may publish.
 
 **Wall-clock time** is never in a payload. Receivers record their own UTC arrival time.
 
@@ -545,7 +561,7 @@ topic write flybot/01/brain/sleep
 | sim | `flybot-01-sim` | 5 s | yes | `flybot/01/status` offline, QoS 1, retained |
 | brain | `flybot-01-brain` | 10 s | yes | `flybot/01/brain/status` offline, QoS 1, retained |
 | bot | `flybot-01-bot` | 30 s | yes | none |
-| dashboard | `flybot-01-dash-<6 random hex>` (one per browser tab) | 30 s | yes | none |
+| dashboard | `flybot-01-<sender name>`, e.g. `flybot-01-dash-3fa2c1` (one per tab, same hex as its `src`, §2) | 30 s | yes | none |
 
 The broker publishes a last will about 1.5 × keep-alive after a client goes silent, so a lost
 robot shows offline within about 8 s. The broker needs `persistence true` so retained
@@ -622,8 +638,10 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
 
 1. **Validate** every message against its schema. Invalid → drop, count per topic, log.
 2. **Unknown version:** a `v` the receiver does not know → drop, count separately, log.
-3. **Streams.** Sequence numbers are tracked per stream. A stream is the topic, plus `src`
-   on topics that have it (`cmd/mode`, `reward`, `brain/sleep`). For each stream keep the last `seq` and `up`.
+3. **Streams.** Sequence numbers are tracked per stream. On topics with `src` (`cmd/manual`,
+   `cmd/mode`, `reward`, `brain/control`, `brain/sleep`) a stream is **topic + sender name**. Each
+   dashboard tab is its own stream, so one tab's `seq` is never compared with another's. On every
+   other topic a stream is the topic alone. For each stream keep the last `seq` and `up`.
 4. **Reboot detection.** `seq` restarts at 0 when a sender starts. **If `up` is lower than the
    last `up` seen on that stream, the sender restarted**: reset the stream and **do not count the
    jump in `seq` as lost messages**. The logger records the restart.
@@ -646,6 +664,11 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
     `brain/status` at once on every change. Normal publishing resumes on the first fresh message.
 12. **Robot: silence is a signal.** The robot does not expect the brain to say "stop". An
     absence of valid `cmd/motor` is handled only by the time-to-live and the 500 ms watchdog (§5).
+13. **New and idle senders.** The first message from a sender name not seen before starts a new
+    stream. Its `seq` is accepted whatever its value, and no loss is counted. A reloaded dashboard
+    tab is a new sender, not a restart. A stream with no message for **10 minutes** is
+    forgotten, so closed tabs do not pile up in memory. A forgotten sender that comes back
+    starts a new stream.
 
 ---
 
@@ -713,4 +736,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 |---|---|---|
 | 1 | 2026-11-23 | First version. All message types at `v = 1`. |
 | 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. Stale sensor data: the brain stops publishing `cmd/motor` instead of sending stop commands, so the robot's watchdog moves it to fallback. `brain/status` → `v = 2`: new `sens` field (`ok`/`stale`/`none`). New §5.1 makes four robot defaults defined behaviour: start in `auto` if no mode arrives within 2 s, stop (not wander) in `manual` with no commands, reflexes off while asleep, leave fallback after 3 consecutive valid commands. |
-| 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. `cmd/mode` → `v = 2`: `src` is `bot` or a tab name. `reward` → `v = 2`: `src` is `btn`, `bot` or a tab name. `brain/sleep` → `v = 2`: `src` is `bot` or a tab name. `brain/control` → `v = 3`: required `src` (tab name). `brain/state` → `v = 3`: `ack` has `src` again (tab name). |
+| 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. `cmd/mode` → `v = 2`: `src` is `bot` or a tab name. `reward` → `v = 2`: `src` is `btn`, `bot` or a tab name. `brain/sleep` → `v = 2`: `src` is `bot` or a tab name. `brain/control` → `v = 3`: required `src` (tab name). `brain/state` → `v = 3`: `ack` has `src` again (tab name). §2 sender-name table; §6 streams are topic + sender name, new rule 13 (new and idle senders); dashboard client ID reuses the tab name. |

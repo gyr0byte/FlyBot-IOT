@@ -49,6 +49,10 @@ Every message carries the same three fields first:
 Because `seq` restarts at boot, a receiver knows the sender rebooted when `up` goes
 **down**. That is not message loss. Full rules are in the contract, §6.
 
+Messages on topics with more than one possible sender also carry `src`, the sender name:
+`btn`, `bot`, or `dash-` + 6 hex for each dashboard tab (generated at page load). Receivers track
+`seq` per sender name. See the contract, §2.
+
 ## 5. Topics
 
 - Every topic starts with `flybot/<robot id>/`. The robot ID is the two-character

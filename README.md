@@ -80,7 +80,7 @@ in `firmware/include/secrets.h` (git-ignored).
 | Phase | What | State |
 |---|---|---|
 | 0 | Repository, conventions, `.gitignore`, `.env.example` | ✅ done |
-| 1 | Message contract + JSON Schemas | ✅ done (contract revision 2) |
+| 1 | Message contract + JSON Schemas | ✅ done (contract revision 3) |
 | 2 | Local Mosquitto broker with users and ACL | next |
 | 3 | Simulator | not started |
 | 4 | Brain skeleton + rule-based baseline | not started |
