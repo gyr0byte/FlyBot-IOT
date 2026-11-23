@@ -16,10 +16,11 @@ toolchains, databases, logs and temp files.
 - Run ad-hoc Python with `-B` so no bytecode cache is written elsewhere.
 - If something can only install to C:, stop and ask first.
 
-## 2. Commit often
+## 2. Commit per completed unit of work
 
-Make a small commit after every logical step (each folder README, each doc, each schema,
-each fix) with a clear message, instead of one big commit at the end.
+Commit once per completed logical unit of work: a finished step from the implementation plan,
+a working feature, or a fix. Do not commit per file. Aim for a handful of commits per phase, each
+with a clear message saying what was done and why.
 Use conventional-commit prefixes (`docs:`, `chore:`, `feat:`, `fix:`).
 Never push unless asked.
 
