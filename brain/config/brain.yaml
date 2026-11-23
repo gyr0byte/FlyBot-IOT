@@ -39,15 +39,16 @@ motor:                      # designed motor layer used by BOTH controllers (not
   wander_curve: 0.25        # max left/right difference while wandering
   wander_change_ms: 1500    # pick a new random curve this often
 
+# Tuned in Phase 5.4 with lockstep batches (see brain/README.md, "Neural vs baseline").
 neural:                     # neural controller; see flybot_brain/controllers/neural.py
   circuit: brain/circuits/designed   # circuit folder (format v1), relative to the repo root
-  smooth_ms: 400            # robot-time smoothing of projection-neuron (PN) rates
+  smooth_ms: 100            # robot-time smoothing of projection-neuron (PN) rates
   detect_hz: 2.0            # summed left + right PN rate above this = an odour signal
-  arrive_hz: 120.0          # max(left, right) PN rate above this = at the source: stop ("eat")
+  arrive_hz: 145.0          # max(left, right) PN rate above this = at the source: stop ("eat")
   leave_ratio: 0.7          # ... until it falls below arrive_hz * leave_ratio
-  turn_gain: 0.9            # turn per unit of PN contrast (left - right) / (left + right)
+  turn_gain: 1.0            # turn per unit of PN contrast (left - right) / (left + right)
   diff_deadband: 0.05       # ignore smaller contrasts
-  steer_full_hz: 20.0       # summed PN rate for full steering weight
+  steer_full_hz: 120.0      # summed PN rate for full steering weight (weak signals are mostly patchiness)
   speed_far: 0.7            # forward speed with weak PN activity ...
   speed_near: 0.6           # ... and with strong activity
   speed_full_hz: 100.0      # summed PN rate counted as strong
