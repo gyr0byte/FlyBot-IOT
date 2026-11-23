@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:flybot:schema:ping",
+  "title": "flybot/01/ping",
+  "description": "Latency probe from the robot to the brain, QoS 0, not retained, 1 Hz. Common fields only. Contract section 3.13.",
+  "type": "object",
+  "properties": {
+    "v": { "const": 1, "description": "Schema version." },
+    "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number (the ping ID)." },
+    "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." }
+  },
+  "required": ["v", "seq", "up"],
+  "additionalProperties": false,
+  "examples": [
+    { "v": 1, "seq": 57, "up": 57012 }
+  ]
+}

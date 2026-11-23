@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:flybot:schema:pong",
+  "title": "flybot/01/pong",
+  "description": "Brain reply to ping, QoS 0, not retained, sent immediately. Robot RTT = its uptime now - pu. Contract section 3.14.",
+  "type": "object",
+  "properties": {
+    "v": { "const": 1, "description": "Schema version." },
+    "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Brain's own per-topic sequence number." },
+    "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Brain uptime, ms." },
+    "ps": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "seq of the ping being answered." },
+    "pu": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "up of the ping being answered, echoed unchanged." }
+  },
+  "required": ["v", "seq", "up", "ps", "pu"],
+  "additionalProperties": false,
+  "examples": [
+    { "v": 1, "seq": 4410, "up": 881230, "ps": 57, "pu": 57012 }
+  ]
+}
