@@ -188,16 +188,20 @@ def test_thrown_object_triggers_escape_through_the_whole_chain():
 
 def test_robot_holds_still_during_odour_warmup_whatever_the_brain_says():
     """Contract section 5: in boot the motors are off and commands are ignored; no watchdog."""
-    seen = {}
-
-    def brain(sim, seq):     # demands full speed from the very first sensors message
-        sim.link.send("cmd/motor", {"v": 1, "seq": seq, "up": sim.t_ms, "l": 1.0, "r": 1.0, "ttl": 300, "rs": seq})
-        if sim.values["ol"] is not None and "t" not in seen:
-            seen["t"], seen["path"], seen["state"] = sim.t_ms, sim.robot.path_length, sim.edge.state
-
-    sim, link = run_sim(7, brain=brain)
-    assert seen["path"] == 0.0                              # not a millimetre during warm-up
-    assert 5000 <= seen["t"] <= 5100                        # boot ends when calibration finishes
+    link = FakeLink(C)
+    sim = Simulation(load_scenario("default"), link)
+    path_in_boot, boot_end = 0.0, None
+    for _ in range(7000 // 5):
+        in_boot = sim.edge.state == "boot"
+        seq = sim.step()
+        if seq is not None:  # a brain demanding full speed from the very first sensors message
+            link.send("cmd/motor", {"v": 1, "seq": seq, "up": sim.t_ms, "l": 1.0, "r": 1.0, "ttl": 300, "rs": seq})
+        if in_boot and sim.edge.state == "boot":
+            path_in_boot = sim.robot.path_length              # distance covered while still booting
+        elif in_boot and boot_end is None:
+            boot_end = sim.t_ms
+    assert path_in_boot == 0.0                              # not a millimetre during warm-up
+    assert 5000 <= boot_end <= 5100                         # boot ends when calibration finishes
     sts = [m["st"] for m in published(link, "status")]
     assert sts[:2] == ["boot", "cloud"]
     assert "fallback_on" not in [m["e"] for m in published(link, "events")]
