@@ -165,8 +165,6 @@ class Timing:
     sensors_hz: float = 20.0
     ping_hz: float = 1.0
     status_every_s: float = 10.0
-    odour_warmup_s: float = 5.0      # real MQ-3s need minutes; shortened for the simulator
-    sim_link_latency_ms: int = 0     # extra simulated one-way delay on inbound commands
 
 
 @dataclass
