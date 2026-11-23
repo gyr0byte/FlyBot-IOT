@@ -34,6 +34,8 @@ class EdgeConfig:
     loom_max_speed_cm_s: float = 400.0   # faster than this = an object appearing, not approaching
     loom_agree: int = 2                  # consecutive readings that must agree
     ego_speed_cm_s: float = 30.0         # our forward speed at motor output 1.0 (calibrate on the robot)
+    loom_max_turn: float = 0.3           # |left - right| output above this = turning: ignore looming ...
+    loom_turn_holdoff_ms: int = 200      # ... and for this long after (the cone sweeping walls looks like looming)
     escape_reverse_ms: int = 400
     escape_turn_ms: int = 450
     escape_speed: float = 0.7

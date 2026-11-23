@@ -111,6 +111,7 @@ class Edge:
         self.escape_pending: dict | None = None   # escape event waiting for its measured lat
         self.loom_hits = 0
         self.prev_reading: tuple[int, float] | None = None
+        self.last_turn_ms = -10 ** 9
 
         self.dist_cm: float | None = None         # filtered distance
         self.obstacle_blocking = False
@@ -256,7 +257,12 @@ class Edge:
         self.dist_cm = filtered_cm
         reflexes = self.state in (CLOUD, MANUAL, FALLBACK) and not self.battery_cut
         cfg = self.cfg
-        if raw_cm is None or self.prev_reading is None:
+        if abs(self.out[0] - self.out[1]) > cfg.loom_max_turn:
+            self.last_turn_ms = now
+        turning = now - self.last_turn_ms < cfg.loom_turn_holdoff_ms
+        if raw_cm is None or self.prev_reading is None or turning:
+            # While we turn, the cone sweeps across walls and the range shrinks fast: that is our
+            # own rotation, not something approaching (a fly suppresses looming during saccades too).
             self.loom_hits = 0
         else:
             pt, pd = self.prev_reading

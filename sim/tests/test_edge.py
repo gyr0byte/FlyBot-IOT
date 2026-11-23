@@ -406,3 +406,22 @@ def test_boot_ignores_motion_commands_and_has_no_watchdog():
     out = h.run(3000)                 # odour not ready yet: still booting, 3 s without commands
     assert h.e.state == BOOT and out == (0.0, 0.0)
     assert "fallback_on" not in h.kinds()
+
+
+def test_turning_toward_a_wall_is_not_looming():
+    """The cone sweeping across a wall while we turn shrinks the range fast: not an approach."""
+    h = Harness().boot()
+    d = 95.0
+    for _ in range(12):
+        h.motor(0.7, 0.1, ttl=300)              # curving hard (left/right difference 0.6)
+        h.e.on_distance(d, d, h.now)
+        h.run(40)
+        d -= 8.0                                # 200 cm/s of apparent closing from the sweep
+    assert "escape" not in h.kinds() and h.e.state == CLOUD
+
+
+def test_looming_still_detected_while_driving_almost_straight():
+    h = Harness().boot()
+    h.drive_brain(300, 0.4, 0.35)               # gentle curve: difference 0.05
+    looming(h, n=4)
+    assert "escape" in h.kinds()
