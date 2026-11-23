@@ -94,3 +94,38 @@ def test_robot_clock_is_monotonic_and_caps_gaps():
     assert c.advance(40) == 100 and c.reboots == 1          # reboot: step counts 0
     assert c.advance(90) == 150
     assert c.advance(5090) == 250 and c.gaps == 1           # 5 s gap capped at 100 ms
+
+
+@needs_broker
+@pytest.mark.parametrize("realtime", [False, True], ids=["lockstep", "realtime"])
+def test_batch_writes_one_row_per_trial(tmp_path, realtime):
+    import csv
+    from flybot_sim.batch import COLUMNS, run_trials
+
+    sc = load_scenario("default")
+    sc.duration_s = 3 if realtime else 20
+
+    def factory(contract):
+        link = Link(MqttSettings.from_env("SIM"), contract, strict=True)
+        assert link.start()
+        return link
+
+    drv = Driver(MqttSettings.from_env("BRAIN"), "arc")
+    drv.start()
+    try:
+        out = tmp_path / "b.csv"
+        rows = run_trials(sc, 2, "driver-arc", realtime, out, factory)
+    finally:
+        drv.stop()
+    with out.open(encoding="utf-8") as f:
+        got = list(csv.DictReader(f))
+    assert len(got) == 2 and list(got[0]) == COLUMNS
+    assert [r["seed"] for r in got] == [str(sc.seed), str(sc.seed + 1)]
+    assert [r["start_index"] for r in got] == ["0", "1"]
+    assert all(r["mode"] == ("realtime" if realtime else "lockstep") for r in got)
+    assert all(r["controller"] == "driver-arc" for r in got)
+    if realtime:
+        assert all(r["crtt_median_ms"] != "" for r in got)
+    else:
+        assert all(r["rtt_median_ms"] == "" and r["crtt_median_ms"] == "" for r in got)
+        assert all(float(r["wall_duration_s"]) < float(r["sim_duration_s"]) for r in got)
