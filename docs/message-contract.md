@@ -38,9 +38,9 @@ program and uses the `brain` connection.
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
 | `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 2 |
 | `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 2 |
-| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 2 |
+| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 3 |
 | `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` | 1 |
-| `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 2 |
+| `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 3 |
 | `brain/sleep` | dashboard, bot | brain only | 1 | no | on user action | `brain-sleep` | 2 |
 | `ping` | robot | brain | 0 | no | 1 Hz | `ping` | 1 |
 | `pong` | brain | robot | 0 | no | once per ping, immediately | `pong` | 1 |
@@ -315,20 +315,20 @@ Brain → dashboard, bot. QoS 0, not retained, 5 Hz.
 | `les` | array of string | – | unique, from the lesion targets in §3.12 | – | Groups currently switched off. |
 | `pref` | object | – | keys `odr`, `lt` (both *optional*), each −1.00 … 1.00 | 2 | Learned preference per cue: + approach, − avoid. Empty `{}` before learning exists. |
 | `rs` | integer \| null | – | 0 … 4294967295 | 0 | `seq` of the newest `sensors` message used. `null` before the first one. |
-| `ack` | object \| null | – | `{"seq": int, "ok": bool}` | – | Result of the last `brain/control` message handled (`seq` is that message's `seq`). `null` if none since start. |
+| `ack` | object \| null | – | `{"src": "dash-xxxxxx", "seq": int, "ok": bool}` | – | Result of the last `brain/control` message handled: its sender name and `seq`, so each tab can tell whether the acknowledgement is for its own command. `null` if none since start. |
 
 `spk` keys (all *optional*): `rl`, `rr` receptor left/right · `pl`, `pr` projection left/right ·
 `ln` antennal-lobe local inhibitory · `kc` Kenyon cells · `apl` global inhibitory ·
 `ma`, `mv` output approach/avoid · `dp`, `dn` dopamine reward/punish.
 
 ```json
-{"v":2,"seq":2210,"up":442100,"hun":0.63,"fear":0.08,"slp":false,"dec":"seek","why":["odour_l","hunger"],"spk":{"rl":41,"rr":22,"pl":18,"pr":7,"ln":12,"kc":96,"apl":3,"ma":5,"mv":1},"les":[],"pref":{"odr":0.4,"lt":-0.6},"rs":1042,"ack":{"seq":12,"ok":true}}
+{"v":3,"seq":2210,"up":442100,"hun":0.63,"fear":0.08,"slp":false,"dec":"seek","why":["odour_l","hunger"],"spk":{"rl":41,"rr":22,"pl":18,"pr":7,"ln":12,"kc":96,"apl":3,"ma":5,"mv":1},"les":[],"pref":{"odr":0.4,"lt":-0.6},"rs":1042,"ack":{"src":"dash-3fa2c1","seq":12,"ok":true}}
 ```
-About 260 bytes at 5 Hz.
+About 280 bytes at 5 Hz.
 
 At startup, before the first sensor message and before any network layer exists:
 ```json
-{"v":2,"seq":0,"up":210,"hun":0.0,"fear":0.0,"slp":false,"dec":"stale","why":[],"spk":{},"les":[],"pref":{},"rs":null,"ack":null}
+{"v":3,"seq":0,"up":210,"hun":0.0,"fear":0.0,"slp":false,"dec":"stale","why":[],"spk":{},"les":[],"pref":{},"rs":null,"ack":null}
 ```
 
 ### 3.11 `flybot/01/brain/weights`
@@ -357,13 +357,15 @@ About 14 KB for 2,000 Kenyon cells.
 ### 3.12 `flybot/01/brain/control`
 
 Dashboard → brain. QoS 1, **not retained**, on user action. **Only the `dashboard` user may
-publish it** (the bot cannot; sleep and wake go through `brain/sleep`, §3.13). Single publisher,
-so there is no `src`. The brain reports the result in `brain/state.ack`, and changes to lesions or
-controller in `brain/state.les` and `brain/status.ctrl`.
+publish it** (the bot cannot; sleep and wake go through `brain/sleep`, §3.13). Several dashboard
+tabs may be open, so every message carries the sending tab's `src`. The brain reports the result in
+`brain/state.ack` (with that `src` and `seq`), and changes to lesions or controller in
+`brain/state.les` and `brain/status.ctrl`.
 
 | Key | Type | Unit | Range | Meaning |
 |---|---|---|---|---|
 | `v`, `seq`, `up` | | | | Common fields. |
+| `src` | string | – | `^dash-[0-9a-f]{6}$` | Sender name of the dashboard tab (§2). |
 | `c` | string | – | `lesion`, `param`, `save`, `load`, `reset` | Command. |
 
 Extra keys per command (each command allows **only** its own keys):
@@ -379,14 +381,14 @@ Extra keys per command (each command allows **only** its own keys):
 | `reset` | `what` | string | `weights`, `state`, `all` | What to reset: learned weights, internal state (hunger, fear, habituation), or both. |
 
 ```json
-{"v":2,"seq":12,"up":98000,"c":"lesion","tgt":"mb","off":true}
+{"v":3,"seq":12,"up":98000,"src":"dash-3fa2c1","c":"lesion","tgt":"mb","off":true}
 ```
 Other commands:
 ```json
-{"v":2,"seq":13,"up":99500,"c":"param","k":"ctrl","val":"neural"}
-{"v":2,"seq":14,"up":101000,"c":"save","name":"after_training"}
-{"v":2,"seq":15,"up":102000,"c":"load"}
-{"v":2,"seq":16,"up":103000,"c":"reset","what":"weights"}
+{"v":3,"seq":13,"up":99500,"src":"dash-3fa2c1","c":"param","k":"ctrl","val":"neural"}
+{"v":3,"seq":14,"up":101000,"src":"dash-3fa2c1","c":"save","name":"after_training"}
+{"v":3,"seq":15,"up":102000,"src":"dash-3fa2c1","c":"load"}
+{"v":3,"seq":16,"up":103000,"src":"dash-3fa2c1","c":"reset","what":"weights"}
 ```
 
 ### 3.13 `flybot/01/brain/sleep`
@@ -711,4 +713,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 |---|---|---|
 | 1 | 2026-11-23 | First version. All message types at `v = 1`. |
 | 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. Stale sensor data: the brain stops publishing `cmd/motor` instead of sending stop commands, so the robot's watchdog moves it to fallback. `brain/status` → `v = 2`: new `sens` field (`ok`/`stale`/`none`). New §5.1 makes four robot defaults defined behaviour: start in `auto` if no mode arrives within 2 s, stop (not wander) in `manual` with no commands, reflexes off while asleep, leave fallback after 3 consecutive valid commands. |
-| 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. `cmd/mode` → `v = 2`: `src` is `bot` or a tab name. `reward` → `v = 2`: `src` is `btn`, `bot` or a tab name. `brain/sleep` → `v = 2`: `src` is `bot` or a tab name. |
+| 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. `cmd/mode` → `v = 2`: `src` is `bot` or a tab name. `reward` → `v = 2`: `src` is `btn`, `bot` or a tab name. `brain/sleep` → `v = 2`: `src` is `bot` or a tab name. `brain/control` → `v = 3`: required `src` (tab name). `brain/state` → `v = 3`: `ack` has `src` again (tab name). |
