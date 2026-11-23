@@ -3,6 +3,7 @@
     .venv\\Scripts\\python -m flybot_brain                     (config/brain.yaml)
     .venv\\Scripts\\python -m flybot_brain --reset-on-reboot   (independent batch trials)
     .venv\\Scripts\\python -m flybot_brain --controller neural --config other.yaml
+    .venv\\Scripts\\python -m flybot_brain --controller neural --no-persistence   (a naive animal)
 
 One program, separate modules: the brain (this phase), the logger (Phase 8) and the Telegram
 bot (Phase 10) will run here side by side, the logger on the brain's MQTT connection and the bot
@@ -33,6 +34,8 @@ def build(args) -> tuple[Brain, BrainLink]:
         cfg.experiment.reset_on_reboot = True
     if args.seed is not None:
         cfg.seed = args.seed
+    if args.no_persistence:
+        cfg.persistence.load_on_start = cfg.persistence.save_on_exit = False
     settings = MqttSettings.from_env()
     contract = Contract(settings.robot_id)
     brain = Brain(cfg, contract, Snapshots(cfg.persistence.path()))
@@ -49,6 +52,8 @@ def main(argv=None) -> int:
     ap.add_argument("--reset-on-reboot", action="store_true",
                     help="reset internal state whenever the robot reboots (independent trials)")
     ap.add_argument("--seed", type=int, help="override the config's random seed")
+    ap.add_argument("--no-persistence", action="store_true",
+                    help="neither load nor save snapshot 'latest' (a fresh, naive brain: one experiment animal)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -56,7 +61,8 @@ def main(argv=None) -> int:
 
     brain, link = build(args)
     cfg = brain.cfg
-    log.info("controller %s, reset_on_reboot %s", cfg.controller, cfg.experiment.reset_on_reboot)
+    log.info("controller %s, reset_on_reboot %s, seed %s, load snapshot %s, save snapshot %s", cfg.controller,
+             cfg.experiment.reset_on_reboot, cfg.seed, cfg.persistence.load_on_start, cfg.persistence.save_on_exit)
     if not link.start():
         log.warning("broker not reachable yet; will keep retrying (is it running?)")
     stop = threading.Event()
