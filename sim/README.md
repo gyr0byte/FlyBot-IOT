@@ -17,6 +17,7 @@ $env:PIP_CACHE_DIR = "D:\Tools\cache\pip"; $env:TMP = "D:\Tools\tmp"; $env:TEMP 
 $env:PYTHONPYCACHEPREFIX = "D:\Tools\cache\pycache"
 python -m venv sim\.venv
 sim\.venv\Scripts\python -m pip install -r sim\requirements.txt
+sim\.venv\Scripts\python -m pip install -e contract      # shared contract code, see contract/README.md
 ```
 
 The broker must be running: `infra\start-broker.cmd local`. MQTT settings come from the root
@@ -91,7 +92,7 @@ number, and the start positions rotate, so any single trial can be reproduced.
 | `edge_sensing.py` | **Firmware:** odour warm-up (`null`), baseline, 0–1 scaling, drift correction; distance median filter; battery smoothing. |
 | `edge.py` | **Firmware:** state machine (`boot cloud manual escape fallback sleep estop`), command TTL, 500 ms watchdog, fallback wander, leaving fallback after 3 good commands, looming escape (time-to-contact, own motion removed), obstacle stop, §5.1 defaults, §6 sequence rules, motor mixer, battery cut-off. |
 | `edge_config.py` | Every firmware constant: the future `firmware/include/config.h`. |
-| `contract.py` | Topics, schemas, message building with v/seq/up, validation. |
+| *(shared)* | Contract code (schemas, `Outbox`, `StreamTracker`, `RobotClock`) lives in [`contract/`](../contract/README.md). |
 | `link.py` | MQTT as user `sim` with the last will; `FakeLink` for offline tests. |
 | `sim.py` | Simulation core: 5 ms physics, schedules, trial metrics. |
 | `runner.py` | Real-time and lockstep loops. |
@@ -108,7 +109,7 @@ Things to know:
 
 ## Tests
 
-From `sim/`: `.venv\Scripts\python -m pytest`. There are 94 tests:
+From `sim/`: `.venv\Scripts\python -m pytest`. This also runs the contract consistency tests in `contract/tests`. There are 94 tests:
 - kinematics and world geometry;
 - each sensor model and the firmware sensor processing;
 - the edge state machine, including watchdog → fallback → recovery, e-stop override, sleep, escape
