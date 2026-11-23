@@ -54,6 +54,8 @@ firmware/.vscode/
 logs/
 data/
 .tmp/
+# Local runtime state: broker password file, persistence database, logs
+.local/
 
 # ---------- Editors / OS ----------
 .vscode/*
