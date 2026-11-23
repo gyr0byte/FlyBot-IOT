@@ -1,4 +1,6 @@
 """Baseline controller decisions."""
+import pytest
+
 from flybot_brain.config import Baseline
 from flybot_brain.controllers.base import Inputs
 from flybot_brain.controllers.baseline import BaselineController
@@ -80,3 +82,12 @@ def test_smoothing_damps_a_single_spike():
     d = c.step(Inputs(0.8, 0.0, 150.0, 0.8, 7.9, 50, 1000))   # one noisy left spike
     assert d.dec == "seek"                                       # reacts, but ...
     assert d.dec != "eat"                                        # ... a spike is not arrival
+
+
+def test_weak_signal_steers_less_than_a_strong_one():
+    """Below steer_full_at the left/right difference is mostly patchiness: steer proportionally less."""
+    weak = run(ctl(steer_full_at=0.3), 0.06, 0.02, n=20)      # total 0.08, same normalised diff ...
+    strong = run(ctl(steer_full_at=0.3), 0.30, 0.10, n=20)    # ... as total 0.40
+    assert 0 < (weak.r - weak.l) < (strong.r - strong.l)
+    assert run(ctl(steer_full_at=0.0), 0.06, 0.02, n=20).r - run(ctl(steer_full_at=0.0), 0.06, 0.02, n=20).l == \
+        pytest.approx(strong.r - strong.l)                     # 0 = always full weight

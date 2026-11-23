@@ -48,6 +48,7 @@ class Baseline:
     speed: float = 0.55
     turn_gain: float = 0.9
     diff_deadband: float = 0.03
+    steer_full_at: float = 0.0      # summed odour at which steering gets full weight (0 = always full)
     slow_cm: float = 45.0
     avoid_cm: float = 22.0
     avoid_turn: float = 0.55

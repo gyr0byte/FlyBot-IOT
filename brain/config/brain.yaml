@@ -19,18 +19,20 @@ persistence:
   load_on_start: true           # load snapshot "latest" at start-up if it exists
   save_on_exit: true            # save snapshot "latest" on a clean shutdown
 
+# Tuned in Phase 4 with lockstep batches (see brain/README.md, "Baseline results").
 baseline:                   # Braitenberg-style controller; see flybot_brain/controllers/baseline.py
   smooth_alpha: 0.35        # EMA on the odour inputs, per tick
   detect: 0.02              # summed odour above this = there is a signal to follow
-  arrive: 0.55              # max(left, right) above this = at the source: stop ("eat")
+  arrive: 0.85              # max(left, right) above this = at the source: stop ("eat"); ~15 cm away
   leave_ratio: 0.7          # ... and stay there until it drops below arrive * leave_ratio
-  speed: 0.55               # forward command while seeking
+  speed: 0.70               # forward command while seeking
   turn_gain: 0.9            # turn command per unit of normalised left/right difference
   diff_deadband: 0.03       # ignore normalised differences smaller than this
-  slow_cm: 45               # obstacle closer than this: slow down ...
+  steer_full_at: 0.30       # summed odour for full steering weight: weaker = mostly patchiness, steer less
+  slow_cm: 60               # obstacle closer than this: slow down ...
   avoid_cm: 22              # ... closer than this: turn away on the spot
   avoid_turn: 0.55          # turn command while avoiding
-  avoid_ms: 700             # keep turning this long once triggered
+  avoid_ms: 1000            # keep turning this long once triggered
   wander_speed: 0.45        # forward command with no odour signal
   wander_curve: 0.25        # max left/right difference while wandering
   wander_change_ms: 1500    # pick a new random curve this often

@@ -75,12 +75,15 @@ class BaselineController(Controller):
         if d is not None and d < p.slow_cm:
             slow = max(0.25, (d - p.avoid_cm) / (p.slow_cm - p.avoid_cm))
 
-        # 3. seek: steer towards the stronger side
+        # 3. seek: steer towards the stronger side. A weak signal is mostly plume patchiness, so
+        #    the left/right difference only gets full weight once the summed signal reaches
+        #    steer_full_at (below that it steers proportionally less).
         if total >= p.detect:
             nd = (self.sl - self.sr) / total
             if abs(nd) < p.diff_deadband:
                 nd = 0.0
-            turn = p.turn_gain * nd
+            confidence = 1.0 if p.steer_full_at <= 0 else min(1.0, total / p.steer_full_at)
+            turn = p.turn_gain * nd * confidence
             fwd = p.speed * slow
             why = ["odour_l" if nd > 0 else "odour_r" if nd < 0 else "odour"]
             if slow < 1.0:
