@@ -1,6 +1,5 @@
 """Sensor physics (sensors.py) and firmware sensor processing (edge_sensing.py)."""
 import math
-from dataclasses import replace
 
 import numpy as np
 import pytest
