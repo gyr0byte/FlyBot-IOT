@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:flybot:schema:brain-weights",
+  "title": "flybot/01/brain/weights",
+  "description": "Learned Kenyon-cell-to-output weights, quantised 0-255 (weight = q / 255 * sc). QoS 1, retained, on change (max 1 per 2 s), at startup and after load/reset. Receivers must check len(ap) == len(av) == n, which JSON Schema cannot express. Contract section 3.11.",
+  "type": "object",
+  "properties": {
+    "v": { "const": 1, "description": "Schema version." },
+    "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number." },
+    "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." },
+    "n": { "type": "integer", "minimum": 1, "maximum": 5000, "description": "Number of Kenyon cells." },
+    "sc": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000, "description": "Weight value for q = 255 (3 dp)." },
+    "ap": {
+      "type": "array", "minItems": 1, "maxItems": 5000,
+      "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+      "description": "Kenyon cell -> approach weights, by cell index."
+    },
+    "av": {
+      "type": "array", "minItems": 1, "maxItems": 5000,
+      "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+      "description": "Kenyon cell -> avoid weights, by cell index."
+    }
+  },
+  "required": ["v", "seq", "up", "n", "sc", "ap", "av"],
+  "additionalProperties": false,
+  "examples": [
+    { "v": 1, "seq": 14, "up": 512000, "n": 8, "sc": 1.0, "ap": [12, 200, 0, 45, 255, 3, 90, 17], "av": [180, 4, 66, 0, 9, 240, 31, 2] }
+  ]
+}

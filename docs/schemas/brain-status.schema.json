@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:flybot:schema:brain-status",
+  "title": "flybot/01/brain/status",
+  "description": "Brain program availability, QoS 1, retained, on change + every 10 s. Last will is the offline form (only v, seq, up, st). Contract section 3.9.",
+  "type": "object",
+  "properties": {
+    "v": { "const": 1, "description": "Schema version." },
+    "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number. 0 in the last-will message." },
+    "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms. Uptime at connect in the last-will message." },
+    "st": { "enum": ["online", "offline"], "description": "Brain availability." },
+    "ctrl": { "enum": ["baseline", "neural"], "description": "Active controller." },
+    "tick": { "type": "number", "minimum": 0, "maximum": 10000, "description": "Mean compute time per control tick over last 10 s, ms (1 dp)." },
+    "ovr": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "Ticks over the 50 ms budget in the last 10 s." }
+  },
+  "required": ["v", "seq", "up", "st"],
+  "additionalProperties": false,
+  "if": { "properties": { "st": { "const": "offline" } }, "required": ["st"] },
+  "then": { "propertyNames": { "enum": ["v", "seq", "up", "st"] } },
+  "else": { "required": ["ctrl", "tick", "ovr"] },
+  "examples": [
+    { "v": 1, "seq": 31, "up": 310050, "st": "online", "ctrl": "neural", "tick": 6.8, "ovr": 0 },
+    { "v": 1, "seq": 0, "up": 1520, "st": "offline" }
+  ]
+}

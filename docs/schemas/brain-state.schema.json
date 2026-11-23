@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:flybot:schema:brain-state",
+  "title": "flybot/01/brain/state",
+  "description": "Brain internal state and decision, QoS 0, not retained, 5 Hz. Contract section 3.10.",
+  "type": "object",
+  "properties": {
+    "v": { "const": 1, "description": "Schema version." },
+    "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number." },
+    "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." },
+    "hun": { "type": "number", "minimum": 0, "maximum": 1, "description": "Hunger 0-1 (2 dp)." },
+    "fear": { "type": "number", "minimum": 0, "maximum": 1, "description": "Fear 0-1 (2 dp)." },
+    "slp": { "type": "boolean", "description": "Brain is asleep." },
+    "dec": { "enum": ["seek", "explore", "approach", "avoid", "freeze", "eat", "sleep", "stale", "paused"], "description": "Current decision." },
+    "why": {
+      "type": "array",
+      "maxItems": 3,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,15}$" },
+      "description": "Main contributors to the decision, strongest first."
+    },
+    "spk": {
+      "type": "object",
+      "description": "Spikes per neuron group in the last 200 ms. Groups not yet built are omitted.",
+      "properties": {
+        "rl": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Receptors, left." },
+        "rr": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Receptors, right." },
+        "pl": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Projection neurons, left." },
+        "pr": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Projection neurons, right." },
+        "ln": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Antennal-lobe local inhibitory neurons." },
+        "kc": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Kenyon cells." },
+        "apl": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Global inhibitory neuron." },
+        "ma": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Output neurons, approach." },
+        "mv": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Output neurons, avoid." },
+        "dp": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Dopamine neurons, reward." },
+        "dn": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Dopamine neurons, punishment." }
+      },
+      "additionalProperties": false
+    },
+    "les": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["rcpt", "ln", "mb", "apl", "learn", "hab", "hun", "fear"] },
+      "description": "Lesion targets currently switched off."
+    },
+    "pref": {
+      "type": "object",
+      "description": "Learned preference per cue: + approach, - avoid (2 dp).",
+      "properties": {
+        "odr": { "type": "number", "minimum": -1, "maximum": 1, "description": "Odour cue." },
+        "lt": { "type": "number", "minimum": -1, "maximum": 1, "description": "Light cue." }
+      },
+      "additionalProperties": false
+    },
+    "rs": { "type": ["integer", "null"], "minimum": 0, "maximum": 4294967295, "description": "seq of the newest sensors message used. null before the first." },
+    "ack": {
+      "type": ["object", "null"],
+      "description": "Result of the last brain/control message handled. null if none since start.",
+      "properties": {
+        "src": { "enum": ["dash", "bot"] },
+        "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "ok": { "type": "boolean" }
+      },
+      "required": ["src", "seq", "ok"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["v", "seq", "up", "hun", "fear", "slp", "dec", "why", "spk", "les", "pref", "rs", "ack"],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "v": 1, "seq": 2210, "up": 442100, "hun": 0.63, "fear": 0.08, "slp": false, "dec": "seek",
+      "why": ["odour_l", "hunger"],
+      "spk": { "rl": 41, "rr": 22, "pl": 18, "pr": 7, "ln": 12, "kc": 96, "apl": 3, "ma": 5, "mv": 1 },
+      "les": [], "pref": { "odr": 0.4, "lt": -0.6 }, "rs": 1042,
+      "ack": { "src": "dash", "seq": 12, "ok": true }
+    },
+    {
+      "v": 1, "seq": 0, "up": 210, "hun": 0.0, "fear": 0.0, "slp": false, "dec": "stale",
+      "why": [], "spk": {}, "les": [], "pref": {}, "rs": null, "ack": null
+    }
+  ]
+}
