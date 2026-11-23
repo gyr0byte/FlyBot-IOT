@@ -1,0 +1,52 @@
+format: 1
+name: designed
+description: 'Designed olfactory front end (plan steps 5.2-5.3): rate-coded receptors
+  per side, projection neurons per side, cross-lateral inhibition by local neurons.'
+source:
+  kind: designed
+generator:
+  script: brain/tools/make_designed_circuit.py
+  seed: 1
+designed_parts: All of it. Sizes, wiring and weights are design choices, not connectome
+  data.
+inputs:
+  odour_left:
+    group: rl
+    encoding: poisson_rate
+    base_hz: 2.0
+    gain_hz: 150.0
+  odour_right:
+    group: rr
+    encoding: poisson_rate
+    base_hz: 2.0
+    gain_hz: 150.0
+outputs:
+  steer_left:
+  - pl
+  steer_right:
+  - pr
+projections:
+- name: rl_pl
+  pre: rl
+  post: pl
+  scale: 0.6
+- name: rl_ln_l
+  pre: rl
+  post: ln_l
+  scale: 0.4
+- name: ln_l_pr
+  pre: ln_l
+  post: pr
+  scale: 0.12
+- name: rr_pr
+  pre: rr
+  post: pr
+  scale: 0.6
+- name: rr_ln_r
+  pre: rr
+  post: ln_r
+  scale: 0.4
+- name: ln_r_pl
+  pre: ln_r
+  post: pl
+  scale: 0.12

@@ -1,0 +1,7 @@
+group,size,model,tau_m_ms,v_thresh,v_reset,t_ref_ms,tau_syn_ms,bias,noise,side,spk_key,lesion_target
+rl,50,poisson,,,,,,,,L,rl,rcpt
+rr,50,poisson,,,,,,,,R,rr,rcpt
+pl,25,lif,20,1.0,0.0,2,5,0.5,0.0,L,pl,
+pr,25,lif,20,1.0,0.0,2,5,0.5,0.0,R,pr,
+ln_l,10,lif,10,1.0,0.0,2,5,0.5,0.0,L,ln,ln
+ln_r,10,lif,10,1.0,0.0,2,5,0.5,0.0,R,ln,ln
