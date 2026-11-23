@@ -1,7 +1,8 @@
 format: 1
 name: designed
-description: 'Designed olfactory front end (plan steps 5.2-5.3): rate-coded receptors
-  per side, projection neurons per side, cross-lateral inhibition by local neurons.'
+description: 'Designed circuit: olfactory front end (steps 5.2-5.3: rate-coded receptors,
+  projection neurons per side, cross-lateral inhibition) and mushroom body (5.5: Kenyon
+  cells with sparse PN and light input, APL feedback inhibition).'
 source:
   kind: designed
 generator:
@@ -20,6 +21,11 @@ inputs:
     encoding: poisson_rate
     base_hz: 2.0
     gain_hz: 150.0
+  light:
+    group: lgt
+    encoding: poisson_rate
+    base_hz: 1.0
+    gain_hz: 60.0
 outputs:
   steer_left:
   - pl
@@ -50,3 +56,23 @@ projections:
   pre: ln_r
   post: pl
   scale: 0.12
+- name: pl_kc
+  pre: pl
+  post: kc
+  scale: 0.3
+- name: pr_kc
+  pre: pr
+  post: kc
+  scale: 0.3
+- name: lgt_kc
+  pre: lgt
+  post: kc
+  scale: 0.8
+- name: kc_apl
+  pre: kc
+  post: apl
+  scale: 0.3
+- name: apl_kc
+  pre: apl
+  post: kc
+  scale: 2.0

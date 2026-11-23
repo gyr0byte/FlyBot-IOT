@@ -40,9 +40,9 @@ def test_committed_circuit_matches_its_generator(tmp_path):
 
 
 def test_shape(circuit):
-    assert circuit.n_neurons == 170 and circuit.n_connections == 1400
+    assert circuit.groups["pl"].size == 25 and circuit.groups["rl"].size == 50 and circuit.groups["ln_l"].size == 10
     assert circuit.manifest["source"]["kind"] == "designed"
-    assert set(circuit.inputs) == {"odour_left", "odour_right"}
+    assert {"odour_left", "odour_right", "light"} <= set(circuit.inputs)
     assert circuit.outputs == {"steer_left": ["pl"], "steer_right": ["pr"]}
 
 

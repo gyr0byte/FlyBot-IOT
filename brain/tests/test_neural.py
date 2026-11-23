@@ -86,7 +86,7 @@ def test_network_time_is_robot_time():
 def test_spike_report_uses_contract_keys():
     c = ctl()
     run(c, 0.4, 0.3, ms=1000)
-    assert set(c.spikes()) == {"rl", "rr", "pl", "pr", "ln"}
+    assert set(c.spikes()) == {"rl", "rr", "pl", "pr", "ln", "kc", "apl"}
 
 
 def test_reset_makes_runs_reproducible():

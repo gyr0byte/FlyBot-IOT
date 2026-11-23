@@ -2,10 +2,12 @@
 
     brain\\.venv\\Scripts\\python brain\\tools\\make_designed_circuit.py [--out brain/circuits/designed] [--seed 1]
 
-Receptors (rate-coded odour, one population per side) -> projection neurons per side, with local
-inhibitory neurons that each side's receptors drive and that inhibit the OPPOSITE side's projection
-neurons, so the stronger side suppresses the weaker one (contrast enhancement).
-Later steps (mushroom body, outputs, dopamine) extend this generator.
+Antennal lobe (5.2-5.3): receptors (rate-coded odour, one population per side) -> projection
+neurons per side, with local inhibitory neurons that each side's receptors drive and that inhibit
+the OPPOSITE side's projection neurons, so the stronger side suppresses the weaker one.
+Mushroom body (5.5): Kenyon cells with sparse random input from projection neurons (both sides)
+and from a light input, and one APL-like neuron giving global feedback inhibition, so that only a
+small fraction of KCs respond to any cue combination (sparse, cue-specific patterns).
 """
 from __future__ import annotations
 
@@ -30,6 +32,16 @@ SCALE = {"rcpt_pn": 0.60, "rcpt_ln": 0.40, "ln_pn": 0.12}
 LIF_PN = dict(model="lif", tau_m_ms=20, v_thresh=1.0, v_reset=0.0, t_ref_ms=2, tau_syn_ms=5, bias=0.5, noise=0.0)
 LIF_LN = dict(LIF_PN, tau_m_ms=10)
 
+# Mushroom body (5.5).
+N_LIGHT, N_KC = 20, 2000
+PN_PER_KC = (4, 8)                 # each KC samples 4-8 random PNs (fly: ~6-7 claws on average)
+CLAW_SIGMA = 0.6                   # lognormal spread of claw strengths (mean 1): KCs differ, as in flies
+LIGHT_KC_FRACTION, LIGHT_PER_KC = 0.3, 3
+LIGHT_BASE_HZ, LIGHT_GAIN_HZ = 1.0, 60.0
+SCALE_MB = {"pn_kc": 0.30, "lgt_kc": 0.80, "kc_apl": 0.30, "apl_kc": 2.0}
+LIF_KC = dict(LIF_PN, bias=0.0)
+LIF_APL = dict(LIF_PN, tau_m_ms=10, bias=0.0)
+
 
 def generate(out: Path, seed: int = 1):
     rng = np.random.default_rng(seed)
@@ -42,6 +54,11 @@ def generate(out: Path, seed: int = 1):
     for side, s in (("l", "L"), ("r", "R")):
         groups.append({"group": f"ln_{side}", "size": N_LN, **LIF_LN, "side": s, "spk_key": "ln",
                        "lesion_target": "ln"})
+    groups += [
+        {"group": "lgt", "size": N_LIGHT, "model": "poisson", "side": "-"},
+        {"group": "kc", "size": N_KC, **LIF_KC, "side": "-", "spk_key": "kc", "lesion_target": "mb"},
+        {"group": "apl", "size": 1, **LIF_APL, "side": "-", "spk_key": "apl", "lesion_target": "apl"},
+    ]
 
     conns = []
     for side in ("l", "r"):
@@ -56,6 +73,20 @@ def generate(out: Path, seed: int = 1):
             for pn in range(N_PN):
                 conns.append((f"ln_{side}_p{other}", ln, pn, 1.0, "inh"))
 
+    # Mushroom body: PN -> KC (random claws from both sides), light -> some KCs, KC <-> APL.
+    def claw():  # lognormal strength with mean 1
+        return float(rng.lognormal(-CLAW_SIGMA ** 2 / 2, CLAW_SIGMA))
+    for kc in range(N_KC):
+        n_claws = int(rng.integers(PN_PER_KC[0], PN_PER_KC[1] + 1))
+        for pn in sorted(rng.choice(2 * N_PN, n_claws, replace=False)):
+            side = "l" if pn < N_PN else "r"
+            conns.append((f"p{side}_kc", int(pn % N_PN), kc, claw(), "exc"))
+    for kc in sorted(rng.choice(N_KC, int(LIGHT_KC_FRACTION * N_KC), replace=False)):
+        for lg in sorted(rng.choice(N_LIGHT, LIGHT_PER_KC, replace=False)):
+            conns.append(("lgt_kc", int(lg), int(kc), claw(), "exc"))
+    conns += [("kc_apl", kc, 0, 1.0, "exc") for kc in range(N_KC)]
+    conns += [("apl_kc", 0, kc, 1.0, "inh") for kc in range(N_KC)]
+
     projections = []
     for side in ("l", "r"):
         other = "r" if side == "l" else "l"
@@ -64,16 +95,25 @@ def generate(out: Path, seed: int = 1):
             {"name": f"r{side}_ln_{side}", "pre": f"r{side}", "post": f"ln_{side}", "scale": SCALE["rcpt_ln"]},
             {"name": f"ln_{side}_p{other}", "pre": f"ln_{side}", "post": f"p{other}", "scale": SCALE["ln_pn"]},
         ]
+    projections += [
+        {"name": "pl_kc", "pre": "pl", "post": "kc", "scale": SCALE_MB["pn_kc"]},
+        {"name": "pr_kc", "pre": "pr", "post": "kc", "scale": SCALE_MB["pn_kc"]},
+        {"name": "lgt_kc", "pre": "lgt", "post": "kc", "scale": SCALE_MB["lgt_kc"]},
+        {"name": "kc_apl", "pre": "kc", "post": "apl", "scale": SCALE_MB["kc_apl"]},
+        {"name": "apl_kc", "pre": "apl", "post": "kc", "scale": SCALE_MB["apl_kc"]},
+    ]
     manifest = {
         "name": "designed",
-        "description": ("Designed olfactory front end (plan steps 5.2-5.3): rate-coded receptors per side, "
-                        "projection neurons per side, cross-lateral inhibition by local neurons."),
+        "description": ("Designed circuit: olfactory front end (steps 5.2-5.3: rate-coded receptors, projection "
+                        "neurons per side, cross-lateral inhibition) and mushroom body (5.5: Kenyon cells with "
+                        "sparse PN and light input, APL feedback inhibition)."),
         "source": {"kind": "designed"},
         "generator": {"script": "brain/tools/make_designed_circuit.py", "seed": seed},
         "designed_parts": "All of it. Sizes, wiring and weights are design choices, not connectome data.",
         "inputs": {
             "odour_left": {"group": "rl", "encoding": "poisson_rate", "base_hz": RATE_BASE_HZ, "gain_hz": RATE_GAIN_HZ},
             "odour_right": {"group": "rr", "encoding": "poisson_rate", "base_hz": RATE_BASE_HZ, "gain_hz": RATE_GAIN_HZ},
+            "light": {"group": "lgt", "encoding": "poisson_rate", "base_hz": LIGHT_BASE_HZ, "gain_hz": LIGHT_GAIN_HZ},
         },
         "outputs": {"steer_left": ["pl"], "steer_right": ["pr"]},
         "projections": projections,
