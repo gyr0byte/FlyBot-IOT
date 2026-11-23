@@ -8,7 +8,8 @@ Connects to the broker over WebSockets (`mqtt.js`) as MQTT user `dashboard` and 
 - Live sensor charts, robot state, hunger/fear gauges, battery, signal and round-trip time.
 - Brain view: spike counts per neuron group, learned-weights heatmap, decision and "why".
 - Controls: mode (auto / manual / estop), manual drive pad (`cmd/manual`), reward and
-  punish, lesion switches, brain save/load/reset.
+  punish, sleep/wake (`brain/sleep`), lesion switches and brain save/load/reset (`brain/control`,
+  which only the dashboard may send).
 - History pages read from the SQLite database.
 
 Note: the browser holds the `dashboard` MQTT credentials, so the dashboard itself must sit

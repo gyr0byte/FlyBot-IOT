@@ -68,15 +68,19 @@ in `firmware/include/secrets.h` (git-ignored).
 - No Docker: Mosquitto runs natively on the laptop; the VM runs services under systemd.
 - Brain, logger and Telegram bot are modules of **one** Python program (MQTT users `brain` and `bot`).
 - SQLite database.
-- New topics beyond the plan: `cmd/manual` (dashboard driving), `cmd/sleep` (brain sleep/wake)
-  and `brain/status` (brain online/offline with last will).
+- New topics beyond the plan: `cmd/manual` (dashboard driving), `cmd/sleep` (brain → robot
+  sleep/wake), `brain/sleep` (dashboard/bot → brain sleep requests) and `brain/status`
+  (brain online/offline with last will, plus sensor-input health).
+- `brain/control` (lesions, parameters, save/load/reset) is dashboard-only. The bot cannot use it.
+- On stale sensor data the brain goes silent rather than sending stop commands, so the robot's
+  watchdog puts it into local fallback.
 
 ## Status
 
 | Phase | What | State |
 |---|---|---|
 | 0 | Repository, conventions, `.gitignore`, `.env.example` | ✅ done |
-| 1 | Message contract + JSON Schemas | ✅ done (contract revision 1) |
+| 1 | Message contract + JSON Schemas | ✅ done (contract revision 2) |
 | 2 | Local Mosquitto broker with users and ACL | next |
 | 3 | Simulator | not started |
 | 4 | Brain skeleton + rule-based baseline | not started |
@@ -85,3 +89,13 @@ in `firmware/include/secrets.h` (git-ignored).
 | 7–13 | Integration, logger, dashboard, bot, cloud, evaluation, demo | not started |
 
 No application code exists yet.
+
+## Known issues / later
+
+- **Dashboard MQTT password is visible in the browser.** The dashboard connects to the broker
+  directly over WebSockets, so the `dashboard` credentials reach every browser that opens it.
+  Later: proxy MQTT through the Next.js server so the password stays server-side. Until then the
+  dashboard needs its own login and TLS in production (contract §9).
+- **Weight list length is not schema-checked.** JSON Schema cannot check that `brain/weights`
+  `ap` and `av` each have exactly `n` items. The brain must check this before publishing, and
+  receivers (dashboard, logger) must check it before use (contract §3.11).
