@@ -17,7 +17,8 @@ form of [`../message-contract.md`](../message-contract.md); if the two disagree,
 | `sensors.schema.json` | `flybot/01/sensors` |
 | `events.schema.json` | `flybot/01/events` |
 | `status.schema.json` | `flybot/01/status` |
-| `cmd-motor.schema.json` | `flybot/01/cmd/motor` and `flybot/01/cmd/manual` (same payload) |
+| `cmd-motor.schema.json` | `flybot/01/cmd/motor` |
+| `cmd-manual.schema.json` | `flybot/01/cmd/manual` |
 | `cmd-mode.schema.json` | `flybot/01/cmd/mode` |
 | `cmd-sleep.schema.json` | `flybot/01/cmd/sleep` |
 | `reward.schema.json` | `flybot/01/reward` |

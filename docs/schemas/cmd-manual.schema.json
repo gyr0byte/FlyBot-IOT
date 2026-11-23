@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:flybot:schema:cmd-manual",
+  "title": "flybot/01/cmd/manual",
+  "description": "Manual wheel command from a dashboard tab, QoS 0, not retained, 10 Hz while driving, obeyed only in manual mode. Same fields as cmd/motor plus src (the tab's sender name). Contract section 3.5.",
+  "type": "object",
+  "properties": {
+    "v": { "const": 2, "description": "Schema version." },
+    "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender (per-tab), per-topic sequence number." },
+    "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms (time since the tab loaded)." },
+    "l": { "type": "number", "minimum": -1, "maximum": 1, "description": "Left wheel, -1.0 full reverse to +1.0 full forward (2 dp)." },
+    "r": { "type": "number", "minimum": -1, "maximum": 1, "description": "Right wheel, -1.0 full reverse to +1.0 full forward (2 dp)." },
+    "ttl": { "type": "integer", "minimum": 50, "maximum": 1000, "description": "Time-to-live from receipt, ms. Default 300." },
+    "rs": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "seq of the newest sensors message this tab has received, 0 if none." },
+    "src": { "type": "string", "pattern": "^dash-[0-9a-f]{6}$", "description": "Dashboard tab sender name, generated at page load." }
+  },
+  "required": ["v", "seq", "up", "l", "r", "ttl", "rs", "src"],
+  "additionalProperties": false,
+  "examples": [
+    { "v": 2, "seq": 15, "up": 95010, "l": 0.5, "r": -0.5, "ttl": 300, "rs": 1044, "src": "dash-3fa2c1" }
+  ]
+}

@@ -1,6 +1,6 @@
 # FlyBot MQTT message contract
 
-**Contract revision:** 2 (2026-11-23). Each message type's current `v` is in the §1 table.
+**Contract revision:** 3 (2026-11-23). Each message type's current `v` is in the §1 table.
 
 This is the source of truth for every message between the FlyBot programs. Programs only
 talk through MQTT. If code and this document disagree, the code is wrong. The
@@ -33,7 +33,7 @@ program and uses the `brain` connection.
 | `events` | robot | brain, dashboard, bot | 1 | no | on occurrence | `events` | 1 |
 | `status` | robot (last will: broker) | brain, dashboard, bot | 1 | **yes** | on change + every 10 s | `status` | 1 |
 | `cmd/motor` | brain | robot, dashboard | 0 | no | every brain tick (20 Hz) | `cmd-motor` | 1 |
-| `cmd/manual` | dashboard | robot, brain | 0 | no | 10 Hz while driving | `cmd-motor` | 1 |
+| `cmd/manual` | dashboard | robot, brain | 0 | no | 10 Hz while driving | `cmd-manual` | 2 |
 | `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` | 1 |
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
 | `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 1 |
@@ -197,14 +197,24 @@ never sends filler or "stop" commands. That silence lets the robot's own 500 ms 
 ### 3.5 `flybot/01/cmd/manual`
 
 Dashboard → robot (brain logs). QoS 0, not retained, 10 Hz while the drive pad is held, then one
-`l:0, r:0` message on release. **Same payload as `cmd/motor`** (schema `cmd-motor`).
+`l:0, r:0` message on release. Same fields as `cmd/motor` **plus `src`** (schema `cmd-manual`).
 **Only the `dashboard` user may publish it.** The robot obeys it only in `manual` mode.
 
-`rs` is the `seq` of the newest `sensors` message the dashboard has received (0 if none yet).
+| Key | Type | Unit | Range | Dec. | Meaning |
+|---|---|---|---|---|---|
+| `v`, `seq`, `up` | | | | | Common fields. |
+| `l`, `r`, `ttl` | | | | | As in `cmd/motor` (§3.4). |
+| `rs` | integer | – | 0 … 4294967295 | 0 | `seq` of the newest `sensors` message this tab has received (0 if none yet). |
+| `src` | string | – | `^dash-[0-9a-f]{6}$` | – | Sender name of the dashboard tab (§2). |
+
+Each tab keeps its own `seq` stream. If two tabs drive at once, the robot follows whichever valid
+command arrived last. Don't do that; it is allowed only so a second tab never gets its commands
+dropped as "out of order".
 
 ```json
-{"v":1,"seq":15,"up":95010,"l":0.5,"r":-0.5,"ttl":300,"rs":1044}
+{"v":2,"seq":15,"up":95010,"l":0.5,"r":-0.5,"ttl":300,"rs":1044,"src":"dash-3fa2c1"}
 ```
+84 bytes.
 
 ### 3.6 `flybot/01/cmd/mode`
 
@@ -693,3 +703,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 |---|---|---|
 | 1 | 2026-11-23 | First version. All message types at `v = 1`. |
 | 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. `brain/control` → `v = 2`: dashboard-only, `src` and the `sleep` command removed; bot loses publish rights. `brain/state` → `v = 2`: `ack` no longer has `src`. Stale sensor data: the brain stops publishing `cmd/motor` instead of sending stop commands, so the robot's watchdog moves it to fallback. `brain/status` → `v = 2`: new `sens` field (`ok`/`stale`/`none`). New §5.1 makes four robot defaults defined behaviour: start in `auto` if no mode arrives within 2 s, stop (not wander) in `manual` with no commands, reflexes off while asleep, leave fallback after 3 consecutive valid commands. |
+| 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. |

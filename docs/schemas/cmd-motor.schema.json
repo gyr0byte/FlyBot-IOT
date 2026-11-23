@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:flybot:schema:cmd-motor",
-  "title": "flybot/01/cmd/motor and flybot/01/cmd/manual",
-  "description": "Wheel command, QoS 0, not retained. cmd/motor: brain only, 20 Hz, obeyed in auto mode. cmd/manual: dashboard only, 10 Hz while driving, obeyed in manual mode. Contract sections 3.4 and 3.5.",
+  "title": "flybot/01/cmd/motor",
+  "description": "Wheel command from the brain, QoS 0, not retained, one per brain tick (20 Hz), obeyed only in auto mode. The brain publishes nothing here while stale, paused or asleep. cmd/manual has its own schema (cmd-manual). Contract section 3.4.",
   "type": "object",
   "properties": {
     "v": { "const": 1, "description": "Schema version." },
@@ -11,12 +11,11 @@
     "l": { "type": "number", "minimum": -1, "maximum": 1, "description": "Left wheel, -1.0 full reverse to +1.0 full forward (2 dp)." },
     "r": { "type": "number", "minimum": -1, "maximum": 1, "description": "Right wheel, -1.0 full reverse to +1.0 full forward (2 dp)." },
     "ttl": { "type": "integer", "minimum": 50, "maximum": 1000, "description": "Time-to-live from receipt, ms. Default 300." },
-    "rs": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "seq of the newest sensors message used (cmd/manual: newest seen by the dashboard, 0 if none)." }
+    "rs": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "seq of the newest sensors message the brain used." }
   },
   "required": ["v", "seq", "up", "l", "r", "ttl", "rs"],
   "additionalProperties": false,
   "examples": [
-    { "v": 1, "seq": 881, "up": 44120, "l": 0.42, "r": 0.35, "ttl": 300, "rs": 1042 },
-    { "v": 1, "seq": 15, "up": 95010, "l": 0.5, "r": -0.5, "ttl": 300, "rs": 1044 }
+    { "v": 1, "seq": 881, "up": 44120, "l": 0.42, "r": 0.35, "ttl": 300, "rs": 1042 }
   ]
 }
