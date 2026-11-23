@@ -1,6 +1,6 @@
 # FlyBot MQTT message contract
 
-**Contract revision:** 1 (2026-11-23). **All message versions:** `v = 1`.
+**Contract revision:** 2 (2026-11-23). Each message type's current `v` is in the §1 table.
 
 This is the source of truth for every message between the FlyBot programs. Programs only
 talk through MQTT. If code and this document disagree, the code is wrong. The
@@ -27,35 +27,36 @@ All topics start with `flybot/01/` (robot ID `01`). "Robot" means the ESP32 (use
 or the simulator (user `sim`), never both at once. The logger is a module of the brain
 program and uses the `brain` connection.
 
-| Topic | Published by | Subscribed by | QoS | Retained | Rate | Schema |
-|---|---|---|---|---|---|---|
-| `sensors` | robot | brain, dashboard | 0 | no | 20 Hz (10–20 allowed) | `sensors` |
-| `events` | robot | brain, dashboard, bot | 1 | no | on occurrence | `events` |
-| `status` | robot (last will: broker) | brain, dashboard, bot | 1 | **yes** | on change + every 10 s | `status` |
-| `cmd/motor` | brain | robot, dashboard | 0 | no | every brain tick (20 Hz) | `cmd-motor` |
-| `cmd/manual` | dashboard | robot, brain | 0 | no | 10 Hz while driving | `cmd-motor` |
-| `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` |
-| `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` |
-| `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` |
-| `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` |
-| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` |
-| `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` |
-| `brain/control` | dashboard, bot | brain, dashboard | 1 | no | on user action | `brain-control` |
-| `ping` | robot | brain | 0 | no | 1 Hz | `ping` |
-| `pong` | brain | robot | 0 | no | once per ping, immediately | `pong` |
+| Topic | Published by | Subscribed by | QoS | Retained | Rate | Schema | `v` |
+|---|---|---|---|---|---|---|---|
+| `sensors` | robot | brain, dashboard | 0 | no | 20 Hz (10–20 allowed) | `sensors` | 1 |
+| `events` | robot | brain, dashboard, bot | 1 | no | on occurrence | `events` | 1 |
+| `status` | robot (last will: broker) | brain, dashboard, bot | 1 | **yes** | on change + every 10 s | `status` | 1 |
+| `cmd/motor` | brain | robot, dashboard | 0 | no | every brain tick (20 Hz) | `cmd-motor` | 1 |
+| `cmd/manual` | dashboard | robot, brain | 0 | no | 10 Hz while driving | `cmd-motor` | 1 |
+| `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` | 1 |
+| `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
+| `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 1 |
+| `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 1 |
+| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 1 |
+| `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` | 1 |
+| `brain/control` | dashboard, bot | brain, dashboard | 1 | no | on user action | `brain-control` | 1 |
+| `brain/sleep` | dashboard, bot | brain only | 1 | no | on user action | `brain-sleep` | 1 |
+| `ping` | robot | brain | 0 | no | 1 Hz | `ping` | 1 |
+| `pong` | brain | robot | 0 | no | once per ping, immediately | `pong` | 1 |
 
 The brain subscribes to `flybot/01/#`, so the logger also sees and stores every topic.
-The dashboard also subscribes to `flybot/01/#`. The table lists the topics it actually uses.
+The dashboard reads every topic except `brain/sleep` (explicit list in the ACL, §4.1).
 
 QoS choices:
 - **QoS 0** for high-rate, latest-value-wins messages (`sensors`, `cmd/motor`,
   `cmd/manual`, `brain/state`). A resent old value is worse than a missing one.
 - **QoS 0** for `ping`/`pong`, so measured loss and latency are real and not hidden by retries.
 - **QoS 1** for messages that must arrive (`events`, `status`, `cmd/mode`, `cmd/sleep`, `reward`,
-  `brain/*` status, weights and control). Receivers drop QoS 1 duplicates (§6).
+  `brain/*` status, weights, control and sleep). Receivers drop QoS 1 duplicates (§6).
 - **Retained** only for current state: `status`, `brain/status`, `brain/weights`, `cmd/mode`.
-  `reward`, `brain/control` and `cmd/sleep` are **never retained**: a restarted brain or robot
-  would replay them (re-train, re-reset, or sleep with no brain behind it).
+  `reward`, `brain/control`, `brain/sleep` and `cmd/sleep` are **never retained**: a restarted
+  brain or robot would replay them (re-train, re-reset, or sleep with no brain behind it).
 
 ---
 
@@ -69,7 +70,7 @@ Every message starts with these three fields:
 | `seq` | integer | – | 0 … 4294967295 | Sequence number, counted **per sender, per topic**. Starts at 0 when the sender starts, +1 per message, wraps to 0 after 4294967295. |
 | `up` | integer | ms | 0 … 9007199254740991 | Sender's uptime when the message was created. |
 
-**`src` field.** Topics with more than one publisher (`cmd/mode`, `reward`, `brain/control`)
+**`src` field.** Topics with more than one publisher (`cmd/mode`, `reward`, `brain/control`, `brain/sleep`)
 also carry `src`, so receivers can keep a separate `seq` stream per sender and the logger
 knows who acted. MQTT does not tell subscribers who published a message, so `src` is
 **bookkeeping only**. The broker's access-control list (§4) decides who may publish.
@@ -227,7 +228,7 @@ or `manual` mode (§5).
 |---|---|---|---|---|---|
 | `v`, `seq`, `up` | | | | | Common fields. |
 | `s` | boolean | – | | – | `true` = sleep, `false` = wake. |
-| `why` | string | – | `dark`, `light`, `user` | – | Cause: light sensor went dark / became light, or a `brain/control` sleep request. |
+| `why` | string | – | `dark`, `light`, `user` | – | Cause: light sensor went dark / became light, or a `brain/sleep` request. |
 
 ```json
 {"v":1,"seq":2,"up":610000,"s":true,"why":"dark"}
@@ -362,7 +363,24 @@ Other commands:
 {"v":1,"seq":2,"up":45000,"src":"bot","c":"sleep","s":true}
 ```
 
-### 3.13 `flybot/01/ping`
+### 3.13 `flybot/01/brain/sleep`
+
+Dashboard, bot → brain. QoS 1, **not retained**, on user action (dashboard sleep/wake button,
+Telegram `/sleep` and `/wake`). **Only `dashboard` and `bot` may publish it, and only `brain`
+may subscribe.** The brain decides whether to act, then tells the robot through `cmd/sleep`
+with `why:"user"`. It never reaches the robot directly.
+
+| Key | Type | Unit | Range | Dec. | Meaning |
+|---|---|---|---|---|---|
+| `v`, `seq`, `up` | | | | | Common fields. |
+| `s` | boolean | – | | – | `true` = request sleep, `false` = request wake. |
+| `src` | string | – | `dash`, `bot` | – | Who sent it (bookkeeping, §2). |
+
+```json
+{"v":1,"seq":2,"up":45000,"s":true,"src":"bot"}
+```
+
+### 3.14 `flybot/01/ping`
 
 Robot → brain. QoS 0, not retained, 1 Hz. Only the common fields.
 
@@ -370,7 +388,7 @@ Robot → brain. QoS 0, not retained, 1 Hz. Only the common fields.
 {"v":1,"seq":57,"up":57012}
 ```
 
-### 3.14 `flybot/01/pong`
+### 3.15 `flybot/01/pong`
 
 Brain → robot. QoS 0, not retained, published immediately for every ping.
 
@@ -394,7 +412,7 @@ Anonymous access is disabled. Each program connects as its own user (passwords i
 firmware credentials in `firmware/include/secrets.h`). The broker enforces the table below. It
 decides who may drive the robot: only `brain` can publish `cmd/motor`, only `dashboard` can
 publish `cmd/manual`, only `dashboard` and `bot` can publish `cmd/mode`, only `brain` can publish
-`cmd/sleep`.
+`cmd/sleep`, and only `dashboard` and `bot` can publish `brain/sleep`, which only `brain` can read.
 
 P = may publish, S = may subscribe, – = neither.
 
@@ -412,10 +430,12 @@ P = may publish, S = may subscribe, – = neither.
 | `brain/state` | – | – | P S | S | S |
 | `brain/weights` | – | – | P S | S | – |
 | `brain/control` | – | – | S | P S | P |
+| `brain/sleep` | – | – | S | P | P |
 | `ping` | P | P | S | S | – |
 | `pong` | S | S | P S | S | – |
 
-`brain` and `dashboard` subscribe with `flybot/01/#`, which is why they can read every topic.
+`brain` reads `flybot/01/#` (every topic, for the logger). `dashboard` reads an explicit list:
+every topic except `brain/sleep`.
 `bot` publishes `brain/control` only for `/sleep` and `/wake`, but the ACL cannot restrict
 payloads, so the bot could also send other control commands. The bot is locked to the allowed
 Telegram chat ID.
@@ -425,7 +445,7 @@ Telegram chat ID.
 This becomes `infra/mosquitto/acl` in Phase 2:
 
 ```text
-# FlyBot ACL, generated from docs/message-contract.md section 4 (revision 1).
+# FlyBot ACL, generated from docs/message-contract.md section 4 (revision 2).
 # allow_anonymous false is set in mosquitto.conf.
 
 user esp32
@@ -462,11 +482,21 @@ topic write flybot/01/brain/weights
 topic write flybot/01/pong
 
 user dashboard
-topic read flybot/01/#
-topic write flybot/01/cmd/manual
-topic write flybot/01/cmd/mode
-topic write flybot/01/reward
-topic write flybot/01/brain/control
+topic read flybot/01/sensors
+topic read flybot/01/events
+topic read flybot/01/status
+topic read flybot/01/cmd/motor
+topic readwrite flybot/01/cmd/manual
+topic readwrite flybot/01/cmd/mode
+topic read flybot/01/cmd/sleep
+topic readwrite flybot/01/reward
+topic read flybot/01/brain/status
+topic read flybot/01/brain/state
+topic read flybot/01/brain/weights
+topic readwrite flybot/01/brain/control
+topic write flybot/01/brain/sleep
+topic read flybot/01/ping
+topic read flybot/01/pong
 
 user bot
 topic read flybot/01/status
@@ -477,6 +507,7 @@ topic read flybot/01/brain/state
 topic write flybot/01/cmd/mode
 topic write flybot/01/reward
 topic write flybot/01/brain/control
+topic write flybot/01/brain/sleep
 ```
 
 ### 4.2 Connection settings
@@ -542,7 +573,7 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
 1. **Validate** every message against its schema. Invalid → drop, count per topic, log.
 2. **Unknown version:** a `v` the receiver does not know → drop, count separately, log.
 3. **Streams.** Sequence numbers are tracked per stream. A stream is the topic, plus `src`
-   on topics that have it (`cmd/mode`, `reward`, `brain/control`). For each stream keep the last `seq` and `up`.
+   on topics that have it (`cmd/mode`, `reward`, `brain/control`, `brain/sleep`). For each stream keep the last `seq` and `up`.
 4. **Reboot detection.** `seq` restarts at 0 when a sender starts. **If `up` is lower than the
    last `up` seen on that stream, the sender restarted**: reset the stream and **do not count the
    jump in `seq` as lost messages**. The logger records the restart.
@@ -621,3 +652,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | Revision | Date | Change |
 |---|---|---|
 | 1 | 2026-11-23 | First version. All message types at `v = 1`. |
+| 2 | 2026-11-23 | Added `brain/sleep` (`v = 1`): dashboard and bot ask the brain to sleep or wake; only the brain reads it. Dashboard ACL changed from `flybot/01/#` to an explicit list without `brain/sleep`. |

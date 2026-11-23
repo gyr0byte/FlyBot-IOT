@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:flybot:schema:brain-sleep",
+  "title": "flybot/01/brain/sleep",
+  "description": "Sleep/wake request to the brain from dashboard or bot, QoS 1, NOT retained, on user action. Only the brain subscribes; it relays to the robot via cmd/sleep with why=user. Contract section 3.13.",
+  "type": "object",
+  "properties": {
+    "v": { "const": 1, "description": "Schema version." },
+    "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number." },
+    "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." },
+    "s": { "type": "boolean", "description": "true = request sleep, false = request wake." },
+    "src": { "enum": ["dash", "bot"], "description": "Sender (bookkeeping only; the ACL decides who may publish)." }
+  },
+  "required": ["v", "seq", "up", "s", "src"],
+  "additionalProperties": false,
+  "examples": [
+    { "v": 1, "seq": 2, "up": 45000, "s": true, "src": "bot" }
+  ]
+}

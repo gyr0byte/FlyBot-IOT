@@ -25,5 +25,6 @@ form of [`../message-contract.md`](../message-contract.md); if the two disagree,
 | `brain-state.schema.json` | `flybot/01/brain/state` |
 | `brain-weights.schema.json` | `flybot/01/brain/weights` |
 | `brain-control.schema.json` | `flybot/01/brain/control` |
+| `brain-sleep.schema.json` | `flybot/01/brain/sleep` |
 | `ping.schema.json` | `flybot/01/ping` |
 | `pong.schema.json` | `flybot/01/pong` |
