@@ -108,7 +108,7 @@ class Driver:
         if name == "ping":
             self._publish("pong", ps=msg["seq"], pu=msg["up"])
             return
-        now = self.clock.advance(msg["up"])
+        now = self.clock.advance(msg["up"], msg["bid"])
         if self.started_at is None:
             if self.wait_boot and msg["ol"] is None:
                 return                          # robot still warming up: don't start the script yet

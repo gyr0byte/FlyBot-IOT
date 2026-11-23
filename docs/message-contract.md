@@ -1,6 +1,6 @@
 # FlyBot MQTT message contract
 
-**Contract revision:** 5 (2026-11-23). Each message type's current `v` is in the §1 table.
+**Contract revision:** 6 (2026-11-23). Each message type's current `v` is in the §1 table.
 
 This is the source of truth for every message between the FlyBot programs. Programs only
 talk through MQTT. If code and this document disagree, the code is wrong. The
@@ -29,20 +29,20 @@ program and uses the `brain` connection.
 
 | Topic | Published by | Subscribed by | QoS | Retained | Rate | Schema | `v` |
 |---|---|---|---|---|---|---|---|
-| `sensors` | robot | brain, dashboard | 0 | no | 20 Hz (10–20 allowed) | `sensors` | 1 |
-| `events` | robot | brain, dashboard, bot | 1 | no | on occurrence | `events` | 1 |
-| `status` | robot (last will: broker) | brain, dashboard, bot | 1 | **yes** | on change + every 10 s | `status` | 1 |
+| `sensors` | robot | brain, dashboard | 0 | no | 20 Hz (10–20 allowed) | `sensors` | 2 |
+| `events` | robot | brain, dashboard, bot | 1 | no | on occurrence | `events` | 2 |
+| `status` | robot (last will: broker) | brain, dashboard, bot | 1 | **yes** | on change + every 10 s | `status` | 2 |
 | `cmd/motor` | brain | robot, dashboard | 0 | no | one per `sensors` message (20 Hz) | `cmd-motor` | 1 |
 | `cmd/manual` | dashboard | robot, brain | 0 | no | 10 Hz while driving | `cmd-manual` | 2 |
 | `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` | 2 |
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
-| `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 2 |
+| `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 3 |
 | `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 2 |
 | `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 4 |
 | `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` | 1 |
 | `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 3 |
 | `brain/sleep` | dashboard, bot | brain only | 1 | no | on user action | `brain-sleep` | 2 |
-| `ping` | robot | brain | 0 | no | 1 Hz | `ping` | 1 |
+| `ping` | robot | brain | 0 | no | 1 Hz | `ping` | 2 |
 | `pong` | brain | robot | 0 | no | once per ping, immediately | `pong` | 1 |
 
 The brain subscribes to `flybot/01/#`, so the logger also sees and stores every topic.
@@ -91,6 +91,13 @@ Topics with exactly one sender (robot-only or brain-only topics) carry no `src`.
 **bookkeeping only**: it is self-declared, and the broker's access-control list (§4) decides
 who may publish.
 
+**Boot ID (`bid`).** Every message the **robot** publishes carries `bid` right after the common fields:
+an integer from 1 to 4294967295. The robot draws it at random at each boot (ESP32: `esp_random()`) and
+keeps it for that whole boot. 0 is never used. A different `bid` means the robot rebooted, so a
+reboot can never be confused with a late message (§6 rule 4). The messages are `sensors`, `events`,
+`status` (including the last will), `ping`, and `reward` from the buttons (`src:"btn"`). Other
+senders (brain, bot, dashboard tabs) carry no `bid`.
+
 **Wall-clock time** is never in a payload. Receivers record their own UTC arrival time.
 
 ---
@@ -107,6 +114,7 @@ Robot → brain, dashboard. QoS 0, not retained, 20 Hz (10–20 Hz allowed).
 | Key | Type | Unit | Range | Dec. | Meaning |
 |---|---|---|---|---|---|
 | `v`, `seq`, `up` | | | | | Common fields. |
+| `bid` | integer | – | 1 … 4294967295 | 0 | Boot ID: random per robot boot (§2). |
 | `ol` | number \| null | – | 0.0 … 1.0 | 3 | Left odour: change from the left MQ-3's baseline, scaled 0–1. `null` while warming up or calibrating. |
 | `or` | number \| null | – | 0.0 … 1.0 | 3 | Right odour, same as `ol`. |
 | `d` | number \| null | cm | 2.0 … 400.0 | 1 | Ultrasonic distance (filtered). `null` = no valid echo (timeout or out of range). |
@@ -114,9 +122,9 @@ Robot → brain, dashboard. QoS 0, not retained, 20 Hz (10–20 Hz allowed).
 | `bat` | number | V | 0.00 … 10.00 | 2 | Battery pack voltage. |
 
 ```json
-{"v":1,"seq":1042,"up":52310,"ol":0.214,"or":0.187,"d":38.5,"lt":0.82,"bat":7.61}
+{"v":2,"seq":1042,"up":52310,"bid":2847193551,"ol":0.214,"or":0.187,"d":38.5,"lt":0.82,"bat":7.61}
 ```
-81 bytes. About 95 bytes worst case with large `seq` and `up`.
+98 bytes. About 110 bytes worst case with large `seq`, `up` and `bid`.
 
 ### 3.2 `flybot/01/events`
 
@@ -127,6 +135,7 @@ Events raised while offline are queued (at least the last 20) and sent on reconn
 | Key | Type | Unit | Range | Dec. | Meaning |
 |---|---|---|---|---|---|
 | `v`, `seq`, `up` | | | | | Common fields. |
+| `bid` | integer | – | 1 … 4294967295 | 0 | Boot ID: random per robot boot (§2). |
 | `e` | string | – | see below | – | Event type. |
 
 Extra keys per event type (each type allows **only** its own keys):
@@ -147,15 +156,15 @@ Extra keys per event type (each type allows **only** its own keys):
 Reward/punish button presses go to `reward` (with `src:"btn"`), not to `events`.
 
 ```json
-{"v":1,"seq":7,"up":61234,"e":"escape","ttc":420,"d":31.0,"lat":3.2}
+{"v":2,"seq":7,"up":61234,"bid":2847193551,"e":"escape","ttc":420,"d":31.0,"lat":3.2}
 ```
 Other types:
 ```json
-{"v":1,"seq":8,"up":64010,"e":"obstacle","d":12.4}
-{"v":1,"seq":9,"up":70500,"e":"fallback_on","why":"cmd_timeout"}
-{"v":1,"seq":10,"up":82750,"e":"fallback_off","dur":12250}
-{"v":1,"seq":11,"up":3600000,"e":"low_battery","bat":6.45,"cut":false}
-{"v":1,"seq":0,"up":2140,"e":"boot","rst":"power_on","fw":"0.1.0"}
+{"v":2,"seq":8,"up":64010,"bid":2847193551,"e":"obstacle","d":12.4}
+{"v":2,"seq":9,"up":70500,"bid":2847193551,"e":"fallback_on","why":"cmd_timeout"}
+{"v":2,"seq":10,"up":82750,"bid":2847193551,"e":"fallback_off","dur":12250}
+{"v":2,"seq":11,"up":3600000,"bid":2847193551,"e":"low_battery","bat":6.45,"cut":false}
+{"v":2,"seq":0,"up":2140,"bid":2847193551,"e":"boot","rst":"power_on","fw":"0.1.0"}
 ```
 
 ### 3.3 `flybot/01/status`
@@ -168,6 +177,7 @@ publishes the same message itself before disconnecting.
 | Key | Type | Unit | Range | Dec. | Meaning |
 |---|---|---|---|---|---|
 | `v`, `seq`, `up` | | | | | Common fields. |
+| `bid` | integer | – | 1 … 4294967295 | 0 | Boot ID: random per robot boot (§2). |
 | `st` | string | – | `boot`, `cloud`, `manual`, `escape`, `fallback`, `sleep`, `estop`, `offline` | – | Current robot state (§5). |
 | `m` | string | – | `auto`, `manual`, `estop` | – | Mode the robot currently holds. |
 | `rssi` | integer | dBm | −127 … 0 | 0 | Wi-Fi signal strength. |
@@ -177,15 +187,15 @@ publishes the same message itself before disconnecting.
 | `crtt` | number \| null | ms | 0.0 … 60000.0 | 1 | Median sensor→`cmd/motor` round-trip time over the last 10 s, from the `rs` echo. `null` if none. |
 | `fw` | string | – | 1–16 chars, `[0-9A-Za-z.+-]` | – | Firmware version. |
 
-When `st` is `offline` the message has **only** `v`, `seq`, `up`, `st`. It is fixed at connect
-time, so `seq` is 0 and `up` is the uptime at connect.
+When `st` is `offline` the message has **only** `v`, `seq`, `up`, `bid`, `st`. It is fixed at connect
+time, so `seq` is 0, `up` is the uptime at connect, and `bid` is the current boot's ID.
 
 ```json
-{"v":1,"seq":120,"up":1200400,"st":"cloud","m":"auto","rssi":-61,"heap":182344,"bat":7.58,"rtt":48.5,"crtt":71.0,"fw":"0.1.0"}
+{"v":2,"seq":120,"up":1200400,"bid":2847193551,"st":"cloud","m":"auto","rssi":-61,"heap":182344,"bat":7.58,"rtt":48.5,"crtt":71.0,"fw":"0.1.0"}
 ```
 Last will:
 ```json
-{"v":1,"seq":0,"up":2310,"st":"offline"}
+{"v":2,"seq":0,"up":2310,"bid":2847193551,"st":"offline"}
 ```
 
 ### 3.4 `flybot/01/cmd/motor`
@@ -277,15 +287,20 @@ Publishers debounce. The brain drops duplicates by (`src`, `seq`) (§6).
 | Key | Type | Unit | Range | Dec. | Meaning |
 |---|---|---|---|---|---|
 | `v`, `seq`, `up` | | | | | Common fields. |
+| `bid` | integer | – | 1 … 4294967295 | 0 | Boot ID (§2): **required when `src` is `btn`**, absent otherwise. |
 | `r` | integer | – | `1` or `-1` | 0 | `1` = reward ("good bot"), `-1` = punishment ("bad bot"). |
 | `src` | string | – | `btn`, `bot` or `^dash-[0-9a-f]{6}$` | – | Sender name (§2). `btn` = robot buttons; the simulator's keyboard reward also uses `btn`. |
 
 ```json
-{"v":2,"seq":3,"up":120455,"r":1,"src":"bot"}
+{"v":3,"seq":3,"up":120455,"r":1,"src":"bot"}
 ```
 From a dashboard tab:
 ```json
-{"v":2,"seq":0,"up":8120,"r":-1,"src":"dash-3fa2c1"}
+{"v":3,"seq":0,"up":8120,"r":-1,"src":"dash-3fa2c1"}
+```
+From the robot's button (with its boot ID):
+```json
+{"v":3,"seq":2,"up":95200,"bid":2847193551,"r":1,"src":"btn"}
 ```
 
 ### 3.9 `flybot/01/brain/status`
@@ -427,10 +442,10 @@ with `why:"user"`. It never reaches the robot directly.
 
 ### 3.14 `flybot/01/ping`
 
-Robot → brain. QoS 0, not retained, 1 Hz. Only the common fields.
+Robot → brain. QoS 0, not retained, 1 Hz. Only the common fields and `bid`.
 
 ```json
-{"v":1,"seq":57,"up":57012}
+{"v":2,"seq":57,"up":57012,"bid":2847193551}
 ```
 
 ### 3.15 `flybot/01/pong`
@@ -647,15 +662,19 @@ Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
    `cmd/mode`, `reward`, `brain/control`, `brain/sleep`) a stream is **topic + sender name**. Each
    dashboard tab is its own stream, so one tab's `seq` is never compared with another's. On every
    other topic a stream is the topic alone. For each stream keep the last `seq` and `up`.
-4. **Reboot detection.** `seq` restarts at 0 when a sender starts. **If `up` is lower than the
-   last `up` seen on that stream, the sender restarted**: reset the stream and **do not count the
-   jump in `seq` as lost messages**. The logger records the restart.
+4. **Reboot detection.** `seq` restarts at 0 when a sender starts. Keep `bid` too on streams that carry it.
+   - **Robot messages (with `bid`):** a **different `bid` means the robot rebooted**. Reset the stream
+     and do not count the jump in `seq` as lost messages. With the same `bid`, only `seq` decides
+     (rules 5–7); `up` is not used to detect a reboot.
+   - **Other senders (no `bid`):** if `up` is lower than the last `up` seen on that stream, the sender
+     restarted. Reset the stream; no loss is counted.
+   - The logger records every restart.
 5. **Duplicates.** Same `seq` as last time and `up` not lower → a QoS 1 redelivery. Drop it.
    This matters for `reward`: one press must train once.
 6. **Loss.** `seq` higher than last + 1 → `seq − last − 1` messages lost (reported in the
    reliability results). Expected on QoS 0 topics, measured not retried.
-7. **Out of order.** `seq` lower than last, `up` not lower → late message. Commands are dropped.
-   Logged data is kept and counted.
+7. **Out of order.** `seq` lower than last and the same `bid` (or, without `bid`, `up` not lower) →
+   late message. Commands are dropped; robot data is not ticked. Logged data is kept and counted.
 8. **Wrap.** After 4294967295 comes 0 with `up` still rising. Treat that as +1, not a reboot.
    (At 20 Hz this takes about 6.8 years.)
 9. **Offline last-will messages** (`st:"offline"` on `status` and `brain/status`) are fixed at
@@ -718,9 +737,12 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
    Only link-health checks use the wall clock: the 250 ms stale check (§6 rule 11), keep-alive and
    ping round-trip time.
 3. **Robot time never goes backwards.** The brain keeps its own monotonic robot time by adding
-   up the positive differences between consecutive `sensors.up` values. If `up` decreases (the
-   robot rebooted), that step counts as 0 and the brain resets its sequence-number state for
-   that sender (§6 rule 4). Internal state (hunger, fear, learned weights) carries on unchanged.
+   up the positive differences between consecutive `sensors.up` values.
+   - When `sensors.bid` changes (the robot rebooted), that step counts as 0 and the brain resets its
+     sequence-number state for that sender (§6 rule 4). Internal state (hunger, fear, learned weights)
+     carries on unchanged.
+   - A late `sensors` message (same `bid`, lower `seq`) is dropped before it reaches the clock, so `up`
+     never steps backwards within a boot.
 4. **Gaps.** If consecutive `sensors.up` values differ by more than **500 ms**, the brain treats it
    as a data gap. It integrates a capped step (**100 ms**) instead of applying the whole jump to
    its dynamics, and records the gap (logged and counted).
@@ -779,3 +801,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | 3 | 2026-11-23 | Per-tab dashboard sender names (`dash-` + 6 hex), carried in `src` on every message a dashboard tab sends. `cmd/manual` → `v = 2` with its own schema `cmd-manual` (adds `src`); `cmd/motor` unchanged at `v = 1`. `cmd/mode` → `v = 2`: `src` is `bot` or a tab name. `reward` → `v = 2`: `src` is `btn`, `bot` or a tab name. `brain/sleep` → `v = 2`: `src` is `bot` or a tab name. `brain/control` → `v = 3`: required `src` (tab name). `brain/state` → `v = 3`: `ack` has `src` again (tab name). §2 sender-name table; §6 streams are topic + sender name, new rule 13 (new and idle senders); dashboard client ID reuses the tab name. |
 | 4 | 2026-11-23 | Time base (§7.1): rates and durations are in robot time (`up`); the brain ticks once per `sensors` message and advances its dynamics by robot time only (monotonic, reboot step = 0, gaps over 500 ms capped at 100 ms); lockstep simulation; latency figures only from real-time runs. No payload or `v` changes. |
 | 5 | 2026-11-23 | MQ-3 warm-up: `brain/state` → `v = 4` with new `dec` value `warmup` (odour `null`, brain sends no `cmd/motor`, `sens` stays `ok`). §5 states the boot hold explicitly: motors off, commands ignored, no watchdog, leave `boot` only after odour calibration. |
+| 6 | 2026-11-23 | Boot ID: new field `bid` (random 1…4294967295 per robot boot) on every robot message: `sensors`, `events`, `status` (incl. last will) and `ping` → `v = 2`; `reward` → `v = 3` (`bid` required when `src` is `btn`, absent otherwise). §6 rule 4: a `bid` change is a reboot; with the same `bid`, `seq` alone decides duplicate / late / lost. §7.1 (3): the reboot step is a `bid` change. Other senders unchanged. |

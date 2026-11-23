@@ -198,7 +198,7 @@ class Edge:
     def on_mode(self, msg: dict, now: int, retained: bool = False) -> None:
         key = ("cmd/mode", msg["src"])
         if retained:  # rule 10: retained = current state; (re)start the stream, never drop it
-            self.streams.streams[key] = (msg["seq"], msg["up"], now)
+            self.streams.remember(key, msg["seq"], msg["up"], now)
         elif not self.streams.accept(key, msg["seq"], msg["up"], now):
             return
         new = msg["m"]

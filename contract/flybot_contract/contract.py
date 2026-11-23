@@ -79,11 +79,24 @@ class Outbox:
         return msg
 
 
-def offline_status(contract: Contract, up_at_connect: int, name: str = "status") -> dict:
-    """A last-will payload, fixed at connect time with seq 0: the robot's `status` (section 3.3)
-    or the brain's `brain/status` (section 3.9)."""
+def offline_status(contract: Contract, up_at_connect: int, name: str = "status", bid: int | None = None) -> dict:
+    """A last-will payload, fixed at connect time with seq 0: the robot's `status` (section 3.3,
+    with its boot id `bid`) or the brain's `brain/status` (section 3.9, no bid)."""
     if name not in ("status", "brain/status"):
         raise ValueError(f"no last-will form for {name}")
-    msg = {"v": contract.versions[name], "seq": 0, "up": int(up_at_connect), "st": "offline"}
+    msg = {"v": contract.versions[name], "seq": 0, "up": int(up_at_connect)}
+    if bid is not None:
+        msg["bid"] = int(bid)
+    msg["st"] = "offline"
     contract.validate(name, msg)
     return msg
+
+
+ROBOT_TOPICS = ("sensors", "events", "status", "ping")   # always carry bid; reward only from "btn"
+
+
+def new_boot_id() -> int:
+    """A random boot id, 1 .. 4294967295 (contract section 2). Unique per boot, NOT seeded:
+    two boots must never share one, even in reproducible simulator runs."""
+    import secrets
+    return secrets.randbelow(2 ** 32 - 1) + 1

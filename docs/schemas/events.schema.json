@@ -5,54 +5,128 @@
   "description": "Robot events, QoS 1, not retained, on occurrence. Each event type allows only its own extra keys. Contract section 3.2.",
   "type": "object",
   "properties": {
-    "v": { "const": 1, "description": "Schema version." },
+    "v": { "const": 2, "description": "Schema version." },
     "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number." },
     "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." },
-    "e": { "enum": ["escape", "obstacle", "fallback_on", "fallback_off", "low_battery", "boot"], "description": "Event type." },
+    "bid": { "type": "integer", "minimum": 1, "maximum": 4294967295, "description": "Boot ID: random per robot boot; a different bid means the robot rebooted (contract 2, 6 rule 4)." },
+    "e": {
+      "enum": ["escape", "obstacle", "fallback_on", "fallback_off", "low_battery", "boot"],
+      "description": "Event type."
+    },
     "ttc": { "type": "integer", "minimum": 0, "maximum": 10000, "description": "escape: time-to-contact at trigger, ms." },
     "d": { "type": "number", "minimum": 2, "maximum": 400, "description": "escape/obstacle: distance at trigger, cm (1 dp)." },
     "lat": { "type": "number", "minimum": 0, "maximum": 1000, "description": "escape: detection-to-motor time on the ESP32, ms (1 dp)." },
-    "why": { "enum": ["cmd_timeout", "ttl_expired", "wifi_lost", "mqtt_lost"], "description": "fallback_on: reason." },
+    "why": {
+      "enum": ["cmd_timeout", "ttl_expired", "wifi_lost", "mqtt_lost"],
+      "description": "fallback_on: reason."
+    },
     "dur": { "type": "integer", "minimum": 0, "maximum": 86400000, "description": "fallback_off: time spent in fallback, ms." },
     "bat": { "type": "number", "minimum": 0, "maximum": 10, "description": "low_battery: pack voltage, V (2 dp)." },
     "cut": { "type": "boolean", "description": "low_battery: true = cut-off reached, motors disabled." },
-    "rst": { "enum": ["power_on", "watchdog", "brownout", "software", "panic", "other"], "description": "boot: reset reason." },
-    "fw": { "type": "string", "pattern": "^[0-9A-Za-z.+-]{1,16}$", "description": "boot: firmware version." }
+    "rst": {
+      "enum": ["power_on", "watchdog", "brownout", "software", "panic", "other"],
+      "description": "boot: reset reason."
+    },
+    "fw": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z.+-]{1,16}$",
+      "description": "boot: firmware version."
+    }
   },
-  "required": ["v", "seq", "up", "e"],
+  "required": ["v", "seq", "up", "bid", "e"],
   "additionalProperties": false,
   "allOf": [
     {
-      "if": { "properties": { "e": { "const": "escape" } }, "required": ["e"] },
-      "then": { "required": ["ttc", "d", "lat"], "propertyNames": { "enum": ["v", "seq", "up", "e", "ttc", "d", "lat"] } }
+      "if": {
+        "properties": {
+          "e": { "const": "escape" }
+        },
+        "required": ["e"]
+      },
+      "then": {
+        "required": ["ttc", "d", "lat"],
+        "propertyNames": {
+          "enum": ["v", "seq", "up", "bid", "e", "ttc", "d", "lat"]
+        }
+      }
     },
     {
-      "if": { "properties": { "e": { "const": "obstacle" } }, "required": ["e"] },
-      "then": { "required": ["d"], "propertyNames": { "enum": ["v", "seq", "up", "e", "d"] } }
+      "if": {
+        "properties": {
+          "e": { "const": "obstacle" }
+        },
+        "required": ["e"]
+      },
+      "then": {
+        "required": ["d"],
+        "propertyNames": {
+          "enum": ["v", "seq", "up", "bid", "e", "d"]
+        }
+      }
     },
     {
-      "if": { "properties": { "e": { "const": "fallback_on" } }, "required": ["e"] },
-      "then": { "required": ["why"], "propertyNames": { "enum": ["v", "seq", "up", "e", "why"] } }
+      "if": {
+        "properties": {
+          "e": { "const": "fallback_on" }
+        },
+        "required": ["e"]
+      },
+      "then": {
+        "required": ["why"],
+        "propertyNames": {
+          "enum": ["v", "seq", "up", "bid", "e", "why"]
+        }
+      }
     },
     {
-      "if": { "properties": { "e": { "const": "fallback_off" } }, "required": ["e"] },
-      "then": { "required": ["dur"], "propertyNames": { "enum": ["v", "seq", "up", "e", "dur"] } }
+      "if": {
+        "properties": {
+          "e": { "const": "fallback_off" }
+        },
+        "required": ["e"]
+      },
+      "then": {
+        "required": ["dur"],
+        "propertyNames": {
+          "enum": ["v", "seq", "up", "bid", "e", "dur"]
+        }
+      }
     },
     {
-      "if": { "properties": { "e": { "const": "low_battery" } }, "required": ["e"] },
-      "then": { "required": ["bat", "cut"], "propertyNames": { "enum": ["v", "seq", "up", "e", "bat", "cut"] } }
+      "if": {
+        "properties": {
+          "e": { "const": "low_battery" }
+        },
+        "required": ["e"]
+      },
+      "then": {
+        "required": ["bat", "cut"],
+        "propertyNames": {
+          "enum": ["v", "seq", "up", "bid", "e", "bat", "cut"]
+        }
+      }
     },
     {
-      "if": { "properties": { "e": { "const": "boot" } }, "required": ["e"] },
-      "then": { "required": ["rst", "fw"], "propertyNames": { "enum": ["v", "seq", "up", "e", "rst", "fw"] } }
+      "if": {
+        "properties": {
+          "e": { "const": "boot" }
+        },
+        "required": ["e"]
+      },
+      "then": {
+        "required": ["rst", "fw"],
+        "propertyNames": {
+          "enum": ["v", "seq", "up", "bid", "e", "rst", "fw"]
+        }
+      }
     }
   ],
   "examples": [
-    { "v": 1, "seq": 7, "up": 61234, "e": "escape", "ttc": 420, "d": 31.0, "lat": 3.2 },
-    { "v": 1, "seq": 8, "up": 64010, "e": "obstacle", "d": 12.4 },
-    { "v": 1, "seq": 9, "up": 70500, "e": "fallback_on", "why": "cmd_timeout" },
-    { "v": 1, "seq": 10, "up": 82750, "e": "fallback_off", "dur": 12250 },
-    { "v": 1, "seq": 11, "up": 3600000, "e": "low_battery", "bat": 6.45, "cut": false },
-    { "v": 1, "seq": 0, "up": 2140, "e": "boot", "rst": "power_on", "fw": "0.1.0" }
+    { "v": 2, "seq": 7, "up": 61234, "bid": 2847193551, "e": "escape", "ttc": 420, "d": 31.0, "lat": 3.2 },
+    { "v": 2, "seq": 8, "up": 64010, "bid": 2847193551, "e": "obstacle", "d": 12.4 },
+    { "v": 2, "seq": 9, "up": 70500, "bid": 2847193551, "e": "fallback_on", "why": "cmd_timeout" },
+    { "v": 2, "seq": 10, "up": 82750, "bid": 2847193551, "e": "fallback_off", "dur": 12250 },
+    { "v": 2, "seq": 11, "up": 3600000, "bid": 2847193551, "e": "low_battery", "bat": 6.45, "cut": false },
+    { "v": 2, "seq": 0, "up": 2140, "bid": 2847193551, "e": "boot", "rst": "power_on", "fw": "0.1.0" }
   ]
 }

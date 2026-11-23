@@ -108,7 +108,7 @@ class Brain:
     def _on_mode(self, msg: dict, retained: bool) -> list[Out]:
         key = ("cmd/mode", msg["src"])
         if retained:
-            self.streams.streams[key] = (msg["seq"], msg["up"], self._now_ms())
+            self.streams.remember(key, msg["seq"], msg["up"], self._now_ms())
         elif not self.streams.accept(key, msg["seq"], msg["up"], self._now_ms()):
             return []
         if msg["m"] != self.mode:
@@ -121,11 +121,11 @@ class Brain:
     def _tick(self, msg: dict) -> list[Out]:
         t_start = time.perf_counter()
         now = self.wall()
-        if not self.streams.accept(("sensors",), msg["seq"], msg["up"], int(now * 1000)):
+        if not self.streams.accept(("sensors",), msg["seq"], msg["up"], int(now * 1000), bid=msg["bid"]):
             self.counters["dropped"] += 1
             return []
         restarted = self.streams.last_restarted
-        t = self.clock.advance(msg["up"])
+        t = self.clock.advance(msg["up"], msg["bid"])        # a bid change is a reboot (revision 6)
         if self.clock.rebooted or restarted:
             self._on_robot_reboot()
         if self.clock.gaps > self.counters["gaps"]:

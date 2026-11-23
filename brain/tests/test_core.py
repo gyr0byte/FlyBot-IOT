@@ -59,8 +59,11 @@ def make(tmp_path=None, **exp):
     return b, wall
 
 
-def sensors(seq, up, ol=0.1, orr=0.05, d=120.0):
-    msg = {"v": 1, "seq": seq, "up": up, "ol": ol, "or": orr, "d": d, "lt": 0.8, "bat": 7.9}
+BID = 2847193551
+
+
+def sensors(seq, up, ol=0.1, orr=0.05, d=120.0, bid=BID):
+    msg = {"v": 2, "seq": seq, "up": up, "bid": bid, "ol": ol, "or": orr, "d": d, "lt": 0.8, "bat": 7.9}
     C.validate("sensors", msg)
     return msg
 
@@ -97,9 +100,7 @@ def test_duplicate_and_late_sensors_are_not_ticked():
     b, wall = make()
     feed(b, wall, 3)
     assert b.handle("sensors", sensors(2, 1100)) == []      # duplicate
-    # "Late" as contract section 6 rule 7 defines it: lower seq, up NOT lower. (A message with lower
-    # seq AND lower up counts as a sender restart under rule 4; see the open question on boot ids.)
-    assert b.handle("sensors", sensors(1, 1100)) == []
+    assert b.handle("sensors", sensors(1, 1050)) == []      # late: lower seq and up, same boot id
     assert b.counters["dropped"] == 2 and len(b.ctrl.inputs) == 3
 
 
@@ -117,7 +118,7 @@ def test_robot_time_comes_from_up_not_wall_clock():
 def test_reboot_counts_zero_and_restarts_the_seq_stream():
     b, wall = make()
     feed(b, wall, 3, start_seq=500, start_up=90000)
-    outs = b.handle("sensors", sensors(0, 40))               # robot rebooted: up and seq restart
+    outs = b.handle("sensors", sensors(0, 40, bid=99))       # robot rebooted: new boot id
     assert only(outs, "cmd/motor")[0]["rs"] == 0
     assert b.ctrl.inputs[-1].dt_ms == 0 and b.ctrl.inputs[-1].t_ms == 100
     assert b.counters["reboots"] == 1 and b.streams.lost == 0
@@ -134,13 +135,13 @@ def test_reset_on_reboot_flag():
     b, wall = make()                                          # default: off
     feed(b, wall, 2, start_up=5000)
     b.hun = 0.7
-    b.handle("sensors", sensors(0, 10))
+    b.handle("sensors", sensors(0, 10, bid=99))
     assert b.ctrl.resets == 0 and b.hun == 0.7
 
     b, wall = make(reset_on_reboot=True)
     feed(b, wall, 2, start_up=5000)
     b.hun = 0.7
-    b.handle("sensors", sensors(0, 10))
+    b.handle("sensors", sensors(0, 10, bid=99))
     assert b.ctrl.resets == 1 and b.hun == 0.0
 
 
@@ -195,7 +196,7 @@ def test_paused_unless_mode_is_auto():
 
 def test_ping_gets_pong_echoing_seq_and_up():
     b, _ = make()
-    (name, msg), = b.handle("ping", {"v": 1, "seq": 57, "up": 57012})
+    (name, msg), = b.handle("ping", {"v": 2, "seq": 57, "up": 57012, "bid": 2847193551})
     assert name == "pong" and msg["ps"] == 57 and msg["pu"] == 57012
 
 
@@ -292,14 +293,14 @@ def test_link_validates_incoming_and_answers_ping_at_once():
     link = BrainLink(MqttSettings("127.0.0.1", 1883, "brain", "x"), C, b)
     sent = []
     link.client.publish = lambda topic, payload, qos=0, retain=False: sent.append((topic, payload, qos, retain))
-    link._on_message(None, None, fake_msg("sensors", b'{"v":1,"seq":1,"up":1,"ol":2,"or":0,"d":null,"lt":null,"bat":7}'))
+    link._on_message(None, None, fake_msg("sensors", b'{"v":2,"seq":1,"up":1,"bid":2847193551,"ol":2,"or":0,"d":null,"lt":null,"bat":7}'))
     link._on_message(None, None, fake_msg("sensors", b"garbage"))
     assert link.invalid_in == 2 and link.inbox.empty()
     link._on_message(None, None, fake_msg("cmd/motor", b'{"v":1,"seq":1,"up":1,"l":0,"r":0,"ttl":300,"rs":0}'))
     assert link.inbox.empty()                                 # our own topic: ignored
-    link._on_message(None, None, fake_msg("ping", b'{"v":1,"seq":3,"up":99}'))
+    link._on_message(None, None, fake_msg("ping", b'{"v":2,"seq":3,"up":99,"bid":2847193551}'))
     assert sent and sent[0][0] == C.topic("pong") and b'"ps":3' in sent[0][1]
-    link._on_message(None, None, fake_msg("sensors", b'{"v":1,"seq":1,"up":1,"ol":0.1,"or":0,"d":null,"lt":null,"bat":7}'))
+    link._on_message(None, None, fake_msg("sensors", b'{"v":2,"seq":1,"up":1,"bid":2847193551,"ol":0.1,"or":0,"d":null,"lt":null,"bat":7}'))
     assert link.inbox.qsize() == 1
 
 
@@ -307,3 +308,11 @@ def test_last_will_is_brain_status_offline():
     b, _ = make()
     link = BrainLink(MqttSettings("127.0.0.1", 1883, "brain", "x"), C, b)
     assert link.lwt == {"v": 2, "seq": 0, "up": link.lwt["up"], "st": "offline"}
+
+
+def test_quick_reboot_is_detected_by_boot_id_even_when_up_rises():
+    b, wall = make()
+    feed(b, wall, 3, start_seq=30, start_up=1500)            # robot ran 1.6 s ...
+    outs = b.handle("sensors", sensors(0, 1800, bid=77))      # ... rebooted fast: up higher, seq lower
+    assert only(outs, "cmd/motor")[0]["rs"] == 0 and b.counters["reboots"] == 1
+    assert b.ctrl.inputs[-1].dt_ms == 0

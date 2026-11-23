@@ -15,7 +15,7 @@ import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
 
 from .config import MqttSettings
-from flybot_contract import Contract, ContractError, offline_status
+from flybot_contract import Contract, ContractError, new_boot_id, offline_status
 
 log = logging.getLogger("flybot_sim.link")
 
@@ -34,7 +34,8 @@ class Link:
         self.connected = False
         self.invalid_out = 0
         self.invalid_in = 0
-        self.lwt = offline_status(contract, up_at_connect)
+        self.bid = new_boot_id()             # one link = one robot boot (contract section 2)
+        self.lwt = offline_status(contract, up_at_connect, bid=self.bid)
         c = mqtt.Client(CallbackAPIVersion.VERSION2, client_id=f"flybot-{settings.robot_id}-sim",
                         protocol=mqtt.MQTTv311, clean_session=True)
         c.username_pw_set(settings.user, settings.password)
@@ -119,6 +120,7 @@ class FakeLink:
         self.invalid_out = 0
         self.invalid_in = 0
         self.strict = True
+        self.bid = new_boot_id()
         if connected:
             self.inbox.put(("link", True))
 

@@ -80,7 +80,7 @@ in `firmware/include/secrets.h` (git-ignored).
 | Phase | What | State |
 |---|---|---|
 | 0 | Repository, conventions, `.gitignore`, `.env.example` | ✅ done |
-| 1 | Message contract + JSON Schemas | ✅ done (contract revision 5) |
+| 1 | Message contract + JSON Schemas | ✅ done (contract revision 6) |
 | 2 | Local Mosquitto broker with users and ACL | ✅ done (Mosquitto 2.1.4, ACL test 182/182) |
 | 3 | Simulator | ✅ done (lockstep about 20x real time, 94 tests) |
 | 4 | Brain skeleton + rule-based baseline | ✅ done (baseline reaches the source in 86% / 62% / 98% of trials, see [brain/README.md](brain/README.md)) |
@@ -97,12 +97,6 @@ in `firmware/include/secrets.h` (git-ignored).
 - **Weight list length is not schema-checked.** JSON Schema cannot check that `brain/weights`
   `ap` and `av` each have exactly `n` items. The brain must check this before publishing, and
   receivers (dashboard, logger) must check it before use (contract §3.11).
-- **A late message looks like a reboot.** Contract §6 treats "`up` went down" as a sender restart
-  (rule 4) and "lower `seq`, `up` not lower" as late (rule 7). A genuinely late message has *both*
-  a lower `seq` and a lower `up`, so it is taken for a restart. A very quick reboot, where the new
-  `up` is above the old one, is taken for a late message. MQTT keeps each client's messages in
-  order, so this is rare in practice. A real fix needs a boot identifier in the messages
-  (a payload change).
 - **Single forward ultrasonic sensor.** The robot cannot see obstacles beside it, and turning
   makes the cone sweep across walls, so the looming detector is suppressed while turning
   (`edge_config.loom_max_turn`). A rare false escape can still happen on a wall corner.

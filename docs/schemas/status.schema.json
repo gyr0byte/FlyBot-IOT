@@ -2,28 +2,60 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:flybot:schema:status",
   "title": "flybot/01/status",
-  "description": "Robot status, QoS 1, retained, on change + every 10 s. Last will is the offline form (only v, seq, up, st). Contract section 3.3.",
+  "description": "Robot status, QoS 1, retained, on change + every 10 s. Last will is the offline form (only v, seq, up, bid, st). Contract section 3.3.",
   "type": "object",
   "properties": {
-    "v": { "const": 1, "description": "Schema version." },
+    "v": { "const": 2, "description": "Schema version." },
     "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number. 0 in the last-will message." },
     "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms. Uptime at connect in the last-will message." },
-    "st": { "enum": ["boot", "cloud", "manual", "escape", "fallback", "sleep", "estop", "offline"], "description": "Robot state." },
-    "m": { "enum": ["auto", "manual", "estop"], "description": "Mode the robot currently holds." },
+    "bid": { "type": "integer", "minimum": 1, "maximum": 4294967295, "description": "Boot ID: random per robot boot; a different bid means the robot rebooted (contract 2, 6 rule 4)." },
+    "st": {
+      "enum": ["boot", "cloud", "manual", "escape", "fallback", "sleep", "estop", "offline"],
+      "description": "Robot state."
+    },
+    "m": {
+      "enum": ["auto", "manual", "estop"],
+      "description": "Mode the robot currently holds."
+    },
     "rssi": { "type": "integer", "minimum": -127, "maximum": 0, "description": "Wi-Fi signal strength, dBm." },
     "heap": { "type": "integer", "minimum": 0, "maximum": 16777216, "description": "Free heap, bytes." },
     "bat": { "type": "number", "minimum": 0, "maximum": 10, "description": "Battery pack voltage, V (2 dp)." },
-    "rtt": { "type": ["number", "null"], "minimum": 0, "maximum": 60000, "description": "Median ping round-trip time over last 10 s, ms (1 dp). null if no pongs." },
-    "crtt": { "type": ["number", "null"], "minimum": 0, "maximum": 60000, "description": "Median sensor-to-cmd/motor round-trip time over last 10 s, ms (1 dp). null if none." },
-    "fw": { "type": "string", "pattern": "^[0-9A-Za-z.+-]{1,16}$", "description": "Firmware version." }
+    "rtt": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 60000,
+      "description": "Median ping round-trip time over last 10 s, ms (1 dp). null if no pongs."
+    },
+    "crtt": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 60000,
+      "description": "Median sensor-to-cmd/motor round-trip time over last 10 s, ms (1 dp). null if none."
+    },
+    "fw": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z.+-]{1,16}$",
+      "description": "Firmware version."
+    }
   },
-  "required": ["v", "seq", "up", "st"],
+  "required": ["v", "seq", "up", "bid", "st"],
   "additionalProperties": false,
-  "if": { "properties": { "st": { "const": "offline" } }, "required": ["st"] },
-  "then": { "propertyNames": { "enum": ["v", "seq", "up", "st"] } },
-  "else": { "required": ["m", "rssi", "heap", "bat", "rtt", "crtt", "fw"] },
+  "if": {
+    "properties": {
+      "st": { "const": "offline" }
+    },
+    "required": ["st"]
+  },
+  "then": {
+    "propertyNames": {
+      "enum": ["v", "seq", "up", "bid", "st"]
+    }
+  },
+  "else": {
+    "required": ["m", "rssi", "heap", "bat", "rtt", "crtt", "fw"]
+  },
   "examples": [
-    { "v": 1, "seq": 120, "up": 1200400, "st": "cloud", "m": "auto", "rssi": -61, "heap": 182344, "bat": 7.58, "rtt": 48.5, "crtt": 71.0, "fw": "0.1.0" },
-    { "v": 1, "seq": 0, "up": 2310, "st": "offline" }
+    { "v": 2, "seq": 120, "up": 1200400, "bid": 2847193551, "st": "cloud", "m": "auto", "rssi": -61, "heap": 182344, "bat": 7.58, "rtt": 48.5, "crtt": 71.0, "fw": "0.1.0" },
+    { "v": 2, "seq": 0, "up": 2310, "bid": 2847193551, "st": "offline" }
   ]
 }

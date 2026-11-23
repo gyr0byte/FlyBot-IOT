@@ -36,3 +36,27 @@ def test_robot_clock_is_monotonic_caps_gaps_and_reports_reboots():
     assert c.advance(90) == 150 and not c.rebooted
     assert c.advance(5090) == 250 and c.gaps == 1 and c.step == 100    # 5 s gap capped at 100 ms
     assert c.advance(5590) == 750 and c.gaps == 1                      # exactly 500 ms is not a gap
+
+
+def test_bid_change_is_a_reboot_and_same_bid_late_message_is_dropped():
+    t = StreamTracker()
+    assert t.accept(("s",), 900, 45000, 0, bid=111)
+    assert not t.accept(("s",), 899, 44950, 0, bid=111)      # late: lower seq AND lower up, same boot
+    assert t.dropped == 1 and t.restarts == 0
+    assert t.accept(("s",), 0, 2000, 0, bid=222) and t.last_restarted   # new boot, even with up rising
+    assert t.lost == 0 and t.restarts == 1
+    assert t.accept(("s",), 1, 1990, 0, bid=222)             # same boot: up is ignored, seq decides
+
+
+def test_quick_reboot_with_higher_up_is_still_a_reboot():
+    t = StreamTracker()
+    t.accept(("s",), 30, 1500, 0, bid=111)
+    assert t.accept(("s",), 0, 1800, 0, bid=333) and t.last_restarted  # up rose, seq fell: new bid wins
+
+
+def test_robot_clock_reboots_on_bid_change_only():
+    c = RobotClock()
+    assert [c.advance(u, 7) for u in (1000, 1050, 1100)] == [0, 50, 100]
+    assert c.advance(1200, 9) == 100 and c.rebooted          # new bid: step 0 although up rose
+    assert c.advance(1250, 9) == 150 and not c.rebooted
+    assert c.advance(1240, 9) == 150 and not c.rebooted      # same boot, up back: counts 0, no reboot

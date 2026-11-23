@@ -45,7 +45,7 @@ Other options: `--config <yaml>`, `--seed N`, `-v`. **Ctrl+C** stops it cleanly:
 
 Don't run `sim\tools\drive.py` at the same time: it also logs in as `brain`.
 
-## What it does on the wire (contract revision 5)
+## What it does on the wire (contract revision 6)
 
 - **One control tick per `sensors` message** (§7.1). It answers with `cmd/motor`: `rs` = that
   `seq`, `ttl` 300 ms.
@@ -61,7 +61,7 @@ Don't run `sim\tools\drive.py` at the same time: it also logs in as `brain`.
   | asleep | `sleep` | `ok` |
   | odour still `null` (MQ-3 warm-up; the robot holds still in `boot`) | `warmup` | `ok` |
 
-- **Sequence numbers** are tracked per sender, with reboot detection. Duplicate or late `sensors`
+- **Sequence numbers** are tracked per sender. A robot reboot is recognised by a new boot ID (`bid`, revision 6). Duplicate or late `sensors`
   are not ticked. Every message in and out is validated against `docs/schemas`.
 - **`ping` → `pong`** is answered immediately, on the network thread.
 - **`brain/state`** goes out every 200 ms of robot time, and once a second of wall time while no

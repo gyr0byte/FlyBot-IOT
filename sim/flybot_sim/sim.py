@@ -17,7 +17,7 @@ import numpy as np
 
 from . import FIRMWARE_VERSION
 from .config import Scenario
-from flybot_contract import Contract, ContractError, Outbox
+from flybot_contract import ROBOT_TOPICS, Contract, ContractError, Outbox
 from .edge import BOOT, CLOUD, ESCAPE, FALLBACK, MODE_AUTO, Edge
 from .edge_config import EdgeConfig
 from .edge_sensing import BatteryMonitor, DistanceFilter, OdourChannel
@@ -68,6 +68,7 @@ class Simulation:
         self.contract = contract or link.contract
         self.outbox = Outbox(self.contract)
         self.link = link
+        self.bid = link.bid                     # this boot's id, on every robot message
 
         self.t_ms = 0
         tm = sc.timing
@@ -257,7 +258,9 @@ class Simulation:
     def _publish(self, name: str, fields: dict | None = None, **kw) -> dict | None:
         """Build (v/seq/up), validate and publish. Invalid: raise in strict mode (tests), else log and drop."""
         try:
-            msg = self.outbox.build(name, self.up, **(fields or {}), **kw)
+            if name in ROBOT_TOPICS or (name == "reward" and kw.get("src") == "btn"):
+                kw = {"bid": self.bid, **kw}          # right after up (contract section 2)
+            msg = self.outbox.build(name, self.up, **kw, **(fields or {}))
         except ContractError:
             if getattr(self.link, "strict", True):
                 raise

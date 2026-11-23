@@ -32,16 +32,16 @@ def test_topics_and_versions_come_from_the_schemas():
     assert C.topic("cmd/motor") == "flybot/01/cmd/motor"
     assert C.name_of("flybot/01/cmd/sleep") == "cmd/sleep"
     assert C.name_of("flybot/02/cmd/sleep") is None
-    assert C.versions["brain/control"] == 3 and C.versions["sensors"] == 1
+    assert C.versions["brain/control"] == 3 and C.versions["sensors"] == 2
 
 
 def test_outbox_counts_seq_per_topic_and_validates():
     ob = Outbox(C)
-    a = ob.build("ping", 100)
-    b = ob.build("ping", 200)
-    c = ob.build("reward", 300, r=1, src="btn")
+    a = ob.build("ping", 100, bid=2847193551)
+    b = ob.build("ping", 200, bid=2847193551)
+    c = ob.build("reward", 300, bid=2847193551, r=1, src="btn")
     assert (a["seq"], b["seq"], c["seq"]) == (0, 1, 0)
-    assert list(a) == ["v", "seq", "up"]
+    assert list(a) == ["v", "seq", "up", "bid"]
 
 
 def test_invalid_outgoing_message_raises_and_does_not_consume_seq():
@@ -50,7 +50,7 @@ def test_invalid_outgoing_message_raises_and_does_not_consume_seq():
         ob.build("sensors", 0, ol=1.5, **{"or": 0.1}, d=10.0, lt=None, bat=7.5)   # ol > 1
     with pytest.raises(ContractError):
         ob.build("reward", 0, r=1, src="dash")                                  # bare "dash"
-    assert ob.build("reward", 0, r=1, src="btn")["seq"] == 0
+    assert ob.build("reward", 0, bid=2847193551, r=1, src="btn")["seq"] == 0
 
 
 def test_decode_rejects_invalid_and_unknown_version():
@@ -63,8 +63,8 @@ def test_decode_rejects_invalid_and_unknown_version():
 
 
 def test_last_will_is_the_contract_offline_message():
-    lwt = offline_status(C, 2310)
-    assert lwt == {"v": 1, "seq": 0, "up": 2310, "st": "offline"}
+    lwt = offline_status(C, 2310, bid=2847193551)
+    assert lwt == {"v": 2, "seq": 0, "up": 2310, "bid": 2847193551, "st": "offline"}
 
 
 # ----------------------------------------------------------------------------- what the simulator publishes
@@ -87,7 +87,8 @@ def test_sensor_rate_is_20_hz_and_keys_in_contract_order():
     s = published(link, "sensors")
     assert len(s) == 200
     assert [m["up"] for m in s[:3]] == [0, 50, 100]
-    assert list(s[0]) == ["v", "seq", "up", "ol", "or", "d", "lt", "bat"]
+    assert list(s[0]) == ["v", "seq", "up", "bid", "ol", "or", "d", "lt", "bat"]
+    assert {m["bid"] for m in s} == {sim.bid} and 1 <= sim.bid <= 4294967295
 
 
 def test_odour_is_null_during_warmup_then_numbers():
