@@ -41,3 +41,37 @@ on D:.
    when it starts, rather than on a timer. Why: simplest, no extra thread; the VM restarts the brain
    on deploy. A manual `prune` command exists.
 
+## Phase 9 – dashboard
+
+7. **Login.** A single password (`DASHBOARD_PASSWORD`) and an HMAC-signed HttpOnly cookie (12 h),
+   checked in `proxy.ts` (Next 16's name for middleware). The password and the cookie secret live
+   in `dashboard/.env.local` (git-ignored; I generated random values for this laptop, see the
+   summary), not in the repository's `.env`, so I did not touch your `.env`. Options considered:
+   NextAuth (heavy, needs a provider), HTTP basic auth (no logout, browser prompt).
+
+8. **MQTT credentials in the browser.** The browser connects to the broker directly, as the plan
+   says, so it must hold the `dashboard` MQTT password. It gets it from `/api/mqtt-config` only after
+   login. Proxying MQTT through the Next server (the root README's known issue) would remove that,
+   but it is a bigger change; left as the known issue.
+
+9. **No chart library.** Canvas line charts and heat maps, SVG on the history page. Why: small, no
+   extra dependencies, easy to throttle (charts redraw 5 times a second, React at most 4).
+
+10. **Dependencies.** next 16.4.6, react 19.3.1, mqtt 5.16.1; dev: typescript 5.9.3 (not 7: Next's
+    build uses TypeScript's JS API), @types/*. node_modules in `dashboard/`, npm cache `D:\DevCache\npm`,
+    Next telemetry off.
+
+11. **Smoke test without a browser.** Options: Playwright (downloads browsers; would need
+    `PLAYWRIGHT_BROWSERS_PATH` on D:, several hundred MB), or testing the dashboard's own message
+    code from Node plus the pages over HTTP. Chosen: the latter. `scripts/smoke.ts` runs the same
+    `lib/contract.ts` the pages use; an independent Python subscriber validates every message with
+    the contract schemas. What it does not test: rendering and clicking in a real browser.
+
+12. **History through the dashboard server.** The browser calls `/api/history/*`, which the Next
+    server forwards to the logger API (127.0.0.1). The logger API therefore needs no CORS and is not
+    exposed; only whitelisted endpoints are forwarded.
+
+13. **One start script.** `infra/start-all.ps1` opens one window per part (broker, brain with
+    logger, logger API, dashboard, optional simulator); closing a window stops that part. No
+    background services (as decided in Phase 2).
+
