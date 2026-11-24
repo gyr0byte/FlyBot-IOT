@@ -58,7 +58,11 @@ In lockstep the simulator publishes `sensors` with `seq = n`, waits for the `cmd
 `rs = n`, then simulates the next 50 ms at once. With the test driver that is about
 **20× real time**: 8 one-minute trials take about 21 s.
 - **When it doesn't wait:** in `manual`, `estop` or asleep it doesn't wait. Otherwise it waits at
-  most 100 ms.
+  most 100 ms in interactive runs and 2 s in `batch` and experiment runs (revision 7). A timeout
+  lets the robot carry on with its previous command, so a host stall would change a batch result.
+  Batch CSVs record `lockstep_timeouts` per trial; a trial with 0 timeouts can be reproduced exactly
+  (same scenario, brain `--seed` and trial order). The neural brain with the neural controller
+  runs at about 12× real time.
 - **Free run:** after 3 timeouts in a row it runs freely, still listening 2 ms per step, so the
   watchdog and fallback work without a brain, and a brain that comes back is picked up at once.
 
@@ -133,13 +137,15 @@ Things to know:
 
 ## Tests
 
-From `sim/`: `.venv\Scripts\python -m pytest`. This also runs the contract consistency tests in `contract/tests`. There are 94 tests:
+From `sim/`: `.venv\Scripts\python -m pytest`. This also runs the contract consistency tests in `contract/tests`. There are 245 tests (121 simulator, 124 contract):
 - kinematics and world geometry;
 - each sensor model and the firmware sensor processing;
 - the edge state machine, including watchdog → fallback → recovery, e-stop override, sleep, escape
   and the §5.1 defaults;
 - message schemas;
 - the live view, run headless;
+- learning experiments: lamps, labelled sources, relative and mirrored training starts, the
+  training reward (delay, hold) and the experiment analysis (PI, sign test, report);
 - end-to-end lockstep, real-time and batch runs over the broker.
 
 The broker tests are skipped when the broker isn't running.

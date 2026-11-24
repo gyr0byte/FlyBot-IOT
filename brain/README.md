@@ -5,7 +5,7 @@ One Python program, `python -m flybot_brain`, made of separate modules:
 | Module | Status | Job | MQTT user |
 |---|---|---|---|
 | `core.py` + `controllers/` | **Phase 4–5** | Contract rules, control ticks, baseline and neural controllers | `brain` |
-| `network/` + `circuits/` | **Phase 5** | Spiking network engine; circuits as data (designed now, FlyWire in 5.13) | – |
+| `network/` + `circuits/` | **Phase 5** | Spiking network engine with dopamine-gated plasticity; circuits as data (designed now, FlyWire in 5.13) | – |
 | `logger/` | Phase 8 | Every `flybot/01/#` message → SQLite, on the brain's connection | `brain` |
 | `bot/` | Phase 10 | Telegram alerts and commands, own connection with a narrow ACL | `bot` |
 
@@ -33,11 +33,19 @@ From the `brain` folder:
 ```powershell
 .venv\Scripts\python -m flybot_brain                      # config\brain.yaml
 .venv\Scripts\python -m flybot_brain --reset-on-reboot    # independent trials (batches)
-.venv\Scripts\python -m flybot_brain --controller neural  # spiking network (steps 5.1–5.4)
+.venv\Scripts\python -m flybot_brain --controller neural  # spiking network (steps 5.1–5.6)
+.venv\Scripts\python -m flybot_brain --controller neural --no-persistence   # a naive brain
 ```
 
 Other options: `--config <yaml>`, `--seed N`, `-v`. **Ctrl+C** stops it cleanly: it saves snapshot
-`latest` and publishes `brain/status` offline.
+`latest` and publishes `brain/status` offline. `--no-persistence` neither loads nor saves `latest`
+(each learning-experiment animal starts naive).
+
+**Seeds.** With `--reset-on-reboot`, the n-th robot boot the brain sees (n = boot-ID changes since
+it started) is re-seeded with `trial_seed(seed, n)`: the base seed for the first boot, then a seed
+derived from (base, n). Every batch trial gets its own noise, and re-running a batch with the same
+`--seed` reproduces it exactly (with the simulator's batch lockstep wait, contract §7.1 (5)).
+Without the flag, a reboot keeps state and the random stream simply continues.
 
 **With the simulator.** Start the brain in one terminal, then in `sim\`:
 - `.venv\Scripts\python -m flybot_sim live` for the live view;
@@ -96,6 +104,9 @@ All gains and thresholds are in `config\brain.yaml`.
 
 ### Baseline results (Phase 4)
 
+> Superseded: these were measured before every trial had its own brain seed. See
+> [Neural vs baseline](#neural-vs-baseline) for the re-measurement (3 base seeds × 50 trials).
+
 Lockstep over MQTT, brain process with `--reset-on-reboot`, 50 trials per scenario. Each trial
 is a fresh robot boot, seeds are scenario seed + trial, and start positions rotate.
 
@@ -116,7 +127,7 @@ physics clock, so "5 ms" means within one step. There was one 355 ms outlier.
 The remaining failures are mostly a single forward ultrasonic sensor not seeing obstacles beside
 the robot (`obstacles`), and starts far from the plume where the signal stays in the noise.
 
-## Neural controller (Phase 5, steps 5.1–5.4)
+## Neural controller (Phase 5, steps 5.1–5.6)
 
 `controllers/neural.py` runs a spiking network (`network/`) on a circuit loaded from files.
 Today that is `circuits/designed/`, made by `tools/make_designed_circuit.py`.
@@ -130,12 +141,15 @@ in the report.
 | Receptors → projection neurons, cross-lateral inhibition | **neural** (spiking network) | groups `pl`, `pr`, `ln_l`, `ln_r` |
 | Turn and speed from PN activity | **neural readout**: PN rates per side, smoothed over robot time; contrast sets the turn, total sets the speed | `neural:` config |
 | Arrival ("eat") | **neural readout**: peak PN rate above `arrive_hz` | `neural:` config |
+| Odour and light → Kenyon cells → approach / avoid output neurons; learning | **neural** (mushroom body, dopamine-gated plasticity) | see [Learning](#learning-phase-5-steps-55-56) |
+| How strongly the robot follows the odour | **neural readout**: valence v = (A − V)/(A + V) of the output neurons scales the innate attraction | `neural:` config (`valence_gain`) |
 | Obstacle avoidance, slowing near obstacles, wandering without odour | **designed rules**, the same motor layer as the baseline | `controllers/motor.py`, `motor:` config |
 
 The circuit itself is designed for now: sizes, wiring and weights are design choices (the manifest
 says so). Step 5.13 swaps it for FlyWire connectome data without changing the engine.
 
-**The designed circuit** (170 neurons, 1,400 connections):
+**The designed circuit** (2,241 neurons, 31,152 connections). The olfactory front end, which
+steers, is 170 neurons and 1,400 connections:
 - 50 receptors per side;
 - 25 projection neurons per side, each fed by 12 same-side receptors. They sit at half threshold, so
   they respond from an odour value of about 0.03 but stay silent in clean air;
@@ -143,32 +157,211 @@ says so). Step 5.13 swaps it for FlyWire connectome data without changing the en
   opposite side's projection neurons, which roughly doubles the left/right contrast for weak and
   moderate signals.
 
+The mushroom body and output neurons (2,071 more neurons) are described under
+[Learning](#learning-phase-5-steps-55-56). Nothing feeds back from them to the projection neurons,
+so the steering signal is unchanged by them.
+
 ### Neural vs baseline
 
-Lockstep over MQTT, brain process with `--reset-on-reboot`, 50 trials per scenario, both
-controllers on the same build:
+Lockstep over MQTT, brain process with `--reset-on-reboot`. For each controller and scenario:
+3 base seeds (`--seed 1/2/3`) × 50 trials. Every trial has its own brain seed (see Seeds above),
+and batch lockstep waits up to 2 s for the brain (contract §7.1 (5)). Over 900 trials there was
+1 lockstep timeout and no fallback, so every batch can be re-run with the same result. Both
+controllers ran on the same build (2026-11-24). The neural brain was untrained (valence ≈ 0).
 
-| Scenario | Reached: neural | Reached: baseline | Median time to source: neural / baseline | Collisions per trial: neural / baseline |
-|---|---|---|---|---|
-| default (60 s) | **46/50 (92%)** | 43/50 (86%) | 26.1 s / 18.1 s | 0.14 / 0.34 |
-| obstacles (90 s) | **30/50 (60%)** | 31/50 (62%) | 27.2 s / 23.8 s | 0.98 / 1.00 |
-| two_sources (90 s) | **50/50 (100%)** | 49/50 (98%) | 14.7 s / 12.2 s | 0.00 / 0.00 |
+| Scenario | Controller | Reached, seeds 1 / 2 / 3 | Reached, pooled (95% CI) | Median time to source | Collisions per trial |
+|---|---|---|---|---|---|
+| default (60 s) | neural | 82 / 84 / 80% | **82%** (75–87%) | 21.5 s | 0.25 |
+| default (60 s) | baseline | 84 / 88 / 80% | **84%** (77–89%) | 20.0 s | 0.23 |
+| obstacles (90 s) | neural | 54 / 56 / 44% | **51%** (43–59%) | 29.1 s | 2.17 |
+| obstacles (90 s) | baseline | 68 / 56 / 58% | **61%** (53–68%) | 26.7 s | 1.39 |
+| two_sources (90 s) | neural | 90 / 94 / 94% | **93%** (87–96%) | 23.4 s | 0.00 |
+| two_sources (90 s) | baseline | 100 / 96 / 96% | **97%** (93–99%) | 21.9 s | 0.05 |
 
-0 messages were lost in all 300 trials.
+The intervals are Wilson 95% intervals over the 150 pooled trials.
 
 **Reading the table:**
-- The neural controller reaches the source as often as the baseline, within 2 points on
-  `obstacles` and better on the other two.
-- It takes **longer**, about 8 s more on `default`. Its smoothed spike-rate readout reacts more
+- On `default` the two controllers are level.
+- On `obstacles` the neural controller is about 10 points lower, with more collisions; the
+  intervals overlap a little. On `two_sources` it is a few points lower.
+- It is slightly slower everywhere (1.5 to 2.5 s): its smoothed spike-rate readout reacts more
   slowly than the baseline's direct sensor difference.
-- Faster driving cut the `default` time to about 21 s, but lost about 6 points on `obstacles`, so it
-  was not adopted.
+
+**Correction to the step 5.4 results.** The earlier table (neural 92% / 60% / 100%, baseline 86% /
+62% / 98%) used one brain seed, and every trial of a batch was re-seeded with that same seed. All
+50 trials replayed one noise sequence, so a batch result mostly reflected that one sequence. The
+5.4 readout was also tuned on those same scenario seeds. Re-running the unchanged 5.4 brain on
+`obstacles` with seeds 1, 2 and 3 gave 60%, 52% and 22%. The claim that the neural controller
+"matches or beats the baseline" does not hold up; the table above replaces it. Lockstep timeouts
+(host stalls over the old 100 ms wait) also made trials irreproducible: in a repeated 10-trial
+batch, the 3 trials with timeouts gave different results.
 
 **Before tuning** (in-process, 32 trials): 50% / 16% / 62%. Three things fixed that:
 - 400 ms readout smoothing, on top of the MQ-3's lag, made the robot orbit the source and scrape
   walls. Now 100 ms.
 - Lateral inhibition sharpens plume patchiness too, so weak signals now steer less (`steer_full_hz` 120).
 - The arrival threshold fired about 20 cm from the source. Now 145 Hz.
+
+## Learning (Phase 5, steps 5.5–5.6)
+
+### Mushroom body (5.5)
+
+The designed circuit adds a mushroom body after the projection neurons:
+- **2,000 Kenyon cells (KCs).** Each takes 4–8 random projection-neuron "claws" from both sides,
+  with lognormal claw weights (so KCs differ in how easily they fire). 30% of KCs also get 3
+  inputs from 20 light neurons (60 Hz at full light).
+- **One APL neuron:** driven by all KCs, it inhibits all KCs (global feedback), which keeps the
+  code sparse.
+
+Measured on the circuit (`tests/test_mushroom_body.py`; fraction of KCs active):
+
+| Input | Active KCs |
+|---|---|
+| odour + light | 9.8% |
+| odour in the dark | 6.7% |
+| light only | 8.2% |
+| strong odour, with APL / APL removed | 6.7% / 79% |
+
+Pattern overlap (Jaccard: KCs active in both / KCs active in either) is 0.29 between odour-with-light and odour-in-the-dark, and
+0.18 between odour-in-the-dark and light only. Repeats of the same cue overlap 0.66–0.81. The code
+is light-dominated: odour-with-light and light-only overlap 0.66.
+
+### Output neurons, dopamine and the learning rule (5.6)
+
+- **Output neurons (MBONs):** 10 "approach" and 10 "avoid". Each KC connects to each MBON with
+  probability 0.3, at weight 1.0 (= `w_max`): learning can only depress.
+- **Dopamine neurons (DANs):** 5 reward and 5 punishment DANs, driven by the `reward` topic. A
+  message starts a 300 ms pulse (DANs fire at about 45 Hz).
+- **Modulation map** (`modulation.csv`): reward DANs gate KC → avoid synapses, punishment DANs gate
+  KC → approach synapses. As in the fly, a reward weakens the route to avoidance and a punishment
+  weakens the route to approach.
+- **Rule (three-factor):** each DAN spike depresses every synapse it gates by
+  `lr × eligibility(KC)`, clipped to [0, 1]. A KC spike sets its eligibility tag to 1, and the tag
+  decays with τ = 2.5 s, so dopamine up to a few seconds after a KC fired still counts.
+  `lr` = 0.001. Forgetting (`neural.forget_tau_s`) is available and off.
+- **Readout:** valence v = (A − V)/(A + V) of the approach (A) and avoid (V) output rates, smoothed
+  over 300 ms. The odour is innately attractive and learning modulates it:
+  drive = clip(1 + 2v, −1, 1.5). The turn toward the odour is scaled by drive; when drive < 0 the
+  robot turns away (`dec: avoid`) and does not stop to eat.
+- **Reporting:** `brain/weights` carries each KC's mean weight onto approach and avoid output
+  neurons (0–255, `n` = 2,000, list lengths checked before publishing). `brain/state.pref` carries
+  the valence experienced with light (`lt`) and without (`odr`). Learned weights are saved in
+  snapshots.
+
+**Why the eligibility tag saturates.** The first version added 1 to the trace per KC spike (`lr`
+0.0003). A KC firing at 20 Hz built a trace of about 50, so one dopamine pulse cut active synapses
+by up to 0.68, and after a few pairings every odour-driven KC was at zero: the valence was −1 for
+any odour. The saturating tag models the coincidence signal in a KC (it does not grow with firing
+rate). `lr` was then chosen by a criterion on weights fixed in advance, not on behaviour: for KCs
+active at the pulse, about 5–10% depression after one pairing and 50–70% after ten, without
+reaching 0. Measured: 6.5% after one pairing; after ten, median 43% and 90th percentile 67%.
+
+### The learning experiment
+
+`sim/tools/learning_experiment.py`, scenario `sim/scenarios/learning.yaml`:
+- **Arena:** dark, two equal odour sources 0.9 m apart, a lamp over one ("lit"); the other is "dark".
+- **Phases per animal:** pre-test 8 trials from the midline → training 15 trials started near the
+  lit source → post-test 8 trials from the midline. A trial ends at the first source reached or
+  after 60 s (timeout).
+- **Training:** on reaching the lit source the simulator presses the training button (`reward` from
+  `btn`) and keeps the trial running 2 s, so the brain pairs the reward with what it senses.
+- **Animals:** each animal is a fresh brain process (`--no-persistence`, seed = animal + 1) that
+  keeps what it learns across its trials. Odd animals get the mirrored arena (lamp on the right);
+  training starts are checked to be near that animal's own lit source. Animal k has the same seeds
+  and side in every condition, so each animal has a "control twin".
+- **Conditions:** punish lit (−1 on reaching the lit source), reward lit (+1), control (same
+  training, no button), delayed punish (−1 pressed 1.5 s after arrival).
+- **Method:** conditions interleaved per animal, batch lockstep wait 2 s, lockstep timeouts recorded;
+  2 timeouts in the 10-animal run.
+- **Measures:** approaches to each source and timeouts per phase; preference index
+  PI = (lit − dark)/(lit + dark); learned valence `pref.lt` / `pref.odr` at the end of each phase.
+  Statistics are paired per animal: ΔPI (post − pre) and post-test counts versus the control twin,
+  with exact two-sided sign tests (ties dropped).
+
+### Results: 10 animals per condition
+
+Post-test means per animal (8 trials). Pre-tests were alike in every condition (about 4.1 lit /
+3.7 dark / 0.2 timeouts, PI ≈ +0.03).
+
+| Condition | Post lit / dark / timeout | PI pre → post | Valence lit / dark |
+|---|---|---|---|
+| control | 4.3 / 3.5 / 0.2 | +0.02 → +0.09 | 0.00 / 0.00 |
+| punish lit | 1.9 / 4.9 / 1.2 | +0.04 → **−0.46** | −0.86 / −0.41 |
+| delayed punish (1.5 s) | 2.1 / 3.9 / 2.0 | +0.04 → −0.30 | −0.83 / −0.57 |
+| reward lit | 4.2 / 3.6 / 0.2 | +0.04 → +0.07 | +0.89 / +0.61 |
+
+Versus the control twin (post-test difference in trials; up / down; sign test p):
+
+| Condition | ΔPI | Lit approaches | Dark approaches | Timeouts |
+|---|---|---|---|---|
+| punish lit | −0.50 (1 / 9, **p = 0.021**) | −2.4 (1 / 7, p = 0.070) | +1.4 (7 / 2, p = 0.18) | +1.0 (8 / 1, p = 0.039) |
+| delayed punish | −0.34 (3 / 7, p = 0.34) | −2.2 (1 / 8, **p = 0.039**) | +0.4 (6 / 3, p = 0.51) | +1.8 (9 / 0, **p = 0.004**) |
+| reward lit | +0.03 (4 / 4, p = 1.0) | −0.1 | +0.1 | 0.0 |
+
+### Results: 30 animals, punish lit and control
+
+**Sample size.** The experiment started with 10 animals per condition. After that interim look,
+the switch to the dark source versus control (+1.4, 7 / 2, p = 0.18) was ambiguous. As planned for
+an ambiguous 10-animal result, punish lit and control were extended with animals 10–29, using the
+same method (conditions interleaved, 2 s lockstep wait; no lockstep timeouts in the new animals).
+The final sample was fixed at 30 per condition before the new animals ran, with no further
+additions whatever the result. The other two conditions stay at 10 animals. The 10-animal results
+above are unchanged (the extension only appended animals) and are reported alongside.
+
+| Condition (30 animals) | Pre lit / dark / timeout | Post lit / dark / timeout | PI pre → post | Valence lit / dark |
+|---|---|---|---|---|
+| control | 4.1 / 3.7 / 0.3 | 4.2 / 3.7 / 0.1 | +0.05 → +0.05 | 0.00 / −0.01 |
+| punish lit | 4.1 / 3.6 / 0.3 | 1.5 / 5.2 / 1.2 | +0.05 → **−0.53** | −0.88 / −0.42 |
+
+Punish lit versus the control twin, 10 animals and 30 animals:
+
+| Measure | 10 animals | 30 animals |
+|---|---|---|
+| ΔPI | −0.50 (1 / 9, p = 0.021) | **−0.58** (2 / 26, p = 3 × 10⁻⁶) |
+| lit approaches | −2.4 (1 / 7, p = 0.070) | **−2.6** (1 / 24, p = 1.5 × 10⁻⁶) |
+| dark approaches | +1.4 (7 / 2, p = 0.18) | **+1.5** (21 / 5, p = 0.0025) |
+| timeouts | +1.0 (8 / 1, p = 0.039) | **+1.1** (23 / 2, p = 1.9 × 10⁻⁵) |
+| valence lit − dark | −0.44 | −0.46 |
+
+The effect sizes barely moved between 10 and 30 animals; the larger sample narrowed the
+uncertainty. With 30 animals, punished animals clearly switch to the dark source: they go there
+more often than their control twins, as well as avoiding the lit one. Some of the lost lit
+approaches still become timeouts (+1.1 per 8 trials).
+
+### Saturating vs accumulating eligibility
+
+Same animals, seeds and method, punish lit and control only (10 animals each); the accumulating
+version is the first rule (`make_designed_circuit.py --rule accumulate`, same wiring).
+
+| Punish lit, post-test | Accumulating | Saturating |
+|---|---|---|
+| lit / dark / timeout (control 4.3 / 3.5 / 0.2) | 2.8 / 2.6 / **2.6** | 1.9 / **4.9** / 1.2 |
+| ΔPI | +0.02 (3 / 6, p = 0.51) | **−0.50** (1 / 9, p = 0.021) |
+| valence lit / dark | −0.99 / −0.84 | −0.86 / −0.41 |
+| timeouts vs control twin | +2.4 (9 / 0, p = 0.004) | +1.0 (8 / 1, p = 0.039) |
+
+Per animal, the saturating rule gave 2.3 more dark choices than the accumulating rule (8 / 1,
+p = 0.039) and 1.4 fewer timeouts (2 / 7, p = 0.18). With the accumulating trace, punishment mostly
+taught "avoid odour sources" (the robot gave up); with the saturating tag it mostly shifted the
+choice away from the lit source. Two earlier runs of both rules (old 100 ms lockstep wait,
+conditions not interleaved, so not exactly reproducible) showed the same pattern.
+
+### What the results show, and what they do not
+
+- **Punishment learning works and is mostly cue-specific** (30 animals): approaches to the punished
+  lit source fall and approaches to the unpunished dark source rise, relative to control twins.
+  Some animals also give up more often (timeouts).
+- **Delayed punishment (1.5 s) still teaches** (10 animals): lit approaches fall, but it shows up
+  more as general avoidance (timeouts) than as a switch to the other source.
+- **The learning generalises partly.** The punished cue's valence falls further than the
+  unpunished odour's (−0.88 vs −0.42), but the dark odour becomes mildly aversive too. The two
+  sources share the odour, and odour-driven KCs are shared between the two codes (overlap 0.29), so
+  some generalisation is expected.
+- **Reward has no behavioural effect** in this design, although the learned valence reaches +0.89:
+  the robot already reaches a source in about 97% of test trials, and positive valence can only
+  raise the turn gain toward its cap. This is a limit of the test, not evidence against reward
+  learning.
+- All of this is in simulation, with a designed (not connectome) circuit.
 
 ## Circuit file format (version 1)
 
@@ -218,8 +411,10 @@ modulation: modulation.csv           # optional
   FlyWire synapse count. A pathway can be retuned without touching `connections.csv`.
 - **`plastic` / `plasticity`:** a plastic projection must give `rule` (only `three_factor` in v1),
   `lr` > 0, `tau_elig_ms` > 0 and `w_min` ≤ `w_max`, in the same units as `weight`. Its initial
-  weights must lie within those bounds, and it may not contain `mod` connections. The spec is
-  checked now and used from step 5.6.
+  weights must lie within those bounds, and it may not contain `mod` connections. Optional
+  `eligibility`: `accumulate` (default; each presynaptic spike adds 1 to the trace) or `saturate`
+  (a spike sets the trace to 1, a coincidence tag that does not grow with firing rate). Plastic
+  projections that share presynaptic neurons must use the same `tau_elig_ms` and `eligibility`.
 - **Inputs** bind to `poisson` groups. Rate = `base_hz + gain_hz × value`, so odour 0–1 maps to a firing rate.
 
 ### `groups.csv`
@@ -243,7 +438,7 @@ modulation: modulation.csv           # optional
 - **`type`** is `exc` (+), `inh` (−) or `mod`. It follows the presynaptic neuron (Dale's law): the
   loader rejects a neuron with two types.
 - **`mod` connections** (dopamine, serotonin) are **not membrane input**. The engine keeps them apart
-  for the modulation system and ignores them until step 5.6.
+  for the modulation system: which synapses a modulator gates comes from `modulation.csv`.
 
 ### `neurons.csv` (optional)
 
@@ -281,12 +476,20 @@ The budget is 50 ms per tick; the target was under 10 ms. `tests/test_network.py
 
 ## Tests
 
-From `brain\`: `.venv\Scripts\python -m pytest`. That runs 218 tests:
-- the core: tick, time base, reboots, gaps, warm-up, stale, paused, sleep, control and the reset flag;
+From `brain\`: `.venv\Scripts\python -m pytest`. That runs 260 tests (136 brain, 124 contract):
+- the core: tick, time base, reboots, gaps, warm-up, stale, paused, sleep, control, the reset flag
+  and per-trial seeds;
+- the command line (`--no-persistence`);
 - message parsing in the link;
 - baseline decisions;
 - the circuit loader, accepting and rejecting every format rule;
 - the engine (step 5.1), including the FlyWire-scale performance check;
 - receptors (5.2) and antennal lobe contrast (5.3) on the designed circuit;
 - the neural controller's readout and motor-layer split (5.4);
+- plasticity in the engine: gating by the modulation map, eligibility (accumulating and
+  saturating), bounds, forgetting;
+- the mushroom body (5.5): 4–12% of Kenyon cells active, different cues give different patterns,
+  APL needed for sparseness;
+- learning (5.6): dopamine neurons, punishment / reward / delayed punishment change the valence,
+  graded change per pairing, `brain/weights`, snapshots of learned weights;
 - the shared contract consistency tests.
