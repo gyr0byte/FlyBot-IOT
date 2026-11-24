@@ -135,6 +135,43 @@ number, and the start positions rotate, so any single trial can be reproduced.
 `edge.py`, `edge_sensing.py` and `edge_config.py` are written for porting to the ESP32. They use
 plain Python, integer milliseconds, injected randomness, and no numpy, MQTT or threads.
 
+### Looming habituation (plan step 5.8)
+
+The escape reflex runs on the robot, so its habituation does too (`edge.py`, constants `hab_*` in
+`edge_config.py`): it works offline and adds no latency.
+- **One level h** (0 = full response). Each looming stimulus gets response `1 − h`, which scales the
+  escape's reverse and turn time and its speed; below 0.2 the robot does not move. Then
+  `h += 0.3 · (1 − h)`. h recovers with τ = 60 s of robot time.
+- **Dishabituation:** a stimulus approaching at least 1.5 × faster than the recent ones (a running
+  average of their speeds) gets the full response and resets h, so the old stimulus is fully
+  restored too.
+- **Speed estimate:** over the whole approach run (up to 8 readings), not one pair of readings 50 ms
+  apart. Even so, the simulated ultrasonic estimate reads 15–40% high with a wide spread (a 0.7 m/s
+  object: 64–119 cm/s). Per-speed-class levels were tried first and dropped for this reason:
+  identical 1.0 m/s stimuli fell into two classes and kept dishabituating each other.
+- Every detection is reported as an `escape` event with `resp` and `hab` (contract revision 8),
+  including detections it does not act on (`resp` 0); `status.hab` gives the current level.
+- `edge: {hab_enabled: false}` switches it off (the `threat` scenario does, so hunger and fear are
+  not confounded with habituation).
+
+**Measured** (`tools/habituation_curve.py`, design E2; robot still, 0.7 m/s stimuli from 0.75 m,
+5 s apart; deterministic, in-process):
+
+| Stimulus | 1 | 2 | 3 | 4 | 5 | 6 | 8 | 10 | 15 |
+|---|---|---|---|---|---|---|---|---|---|
+| response | 1.00 | 0.72 | 0.55 | 0.43 | 0.36 | 0.31 | 0.26 | 0.24 | 0.22 |
+
+- **Plateau:** at 5 s spacing the response levels off near 0.22, where each step and the recovery
+  balance (h* = e^(−5/60)·(0.7h* + 0.3) ≈ 0.78), just above the no-movement floor. At 2 s spacing
+  the balance point is 0.90 and the robot stops reacting (tests).
+- **Recovery** after the 15th stimulus: response 0.29 after 10 s of rest, 0.49 after 30 s, 0.69
+  after 60 s, 0.89 after 120 s.
+- **Dishabituation** (20 seeds): a 1.5 m/s stimulus got the full response in 17/20 runs, 2.5 m/s in
+  20/20, and the slow stimulus right after a dishabituation got the full response again (1.00). A
+  fast object gives only about 3 readings before detection, so its speed estimate is noisy: that is
+  where the 3 misses at 1.5 m/s come from. Identical slow stimuli falsely dishabituated in 8 of 480
+  cases (1.7%).
+
 Things to know:
 - **Odour baseline:** the baseline is captured where the robot stands at the end of warm-up.
   Starting near the source makes it read low, exactly as on the real robot, so warm up in clean air.
@@ -150,6 +187,8 @@ From `sim/`: `.venv\Scripts\python -m pytest`. This also runs the contract consi
   and the §5.1 defaults;
 - message schemas;
 - the live view, run headless;
+- looming habituation: weaker escapes, plateau, suppression at short spacing, recovery,
+  dishabituation, reporting; scheduled threats;
 - learning experiments: lamps, labelled sources, relative and mirrored training starts, the
   training reward (delay, hold) and the experiment analysis (PI, sign test, report);
 - end-to-end lockstep, real-time and batch runs over the broker.

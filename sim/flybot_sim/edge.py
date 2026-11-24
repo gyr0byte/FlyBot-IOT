@@ -23,6 +23,7 @@ Output:
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable
 
@@ -110,6 +111,10 @@ class Edge:
         self.escape_end_ms = -10 ** 9
         self.escape_pending: dict | None = None   # escape event waiting for its measured lat
         self.loom_hits = 0
+        self.hab = (0.0, 0)                          # habituation: (level, at robot ms)
+        self.hab_ref: float | None = None            # running average speed of recent stimuli, cm/s
+        self.approach: list[tuple[int, float, float]] = []   # current approach run: (t, cm, own cm/s)
+        self.escape_speed_now = 0.0
         self.prev_reading: tuple[int, float] | None = None
         self.last_turn_ms = -10 ** 9
 
@@ -126,7 +131,7 @@ class Edge:
         self.battery_cut = False
 
         self.last_update: int | None = None
-        self.stats = {"escapes": 0, "fallback_ms": 0, "obstacle_stops": 0}
+        self.stats = {"escapes": 0, "fallback_ms": 0, "obstacle_stops": 0, "looms": 0, "habituated": 0}
 
     # ------------------------------------------------------------------ helpers
 
@@ -264,6 +269,7 @@ class Edge:
             # While we turn, the cone sweeps across walls and the range shrinks fast: that is our
             # own rotation, not something approaching (a fly suppresses looming during saccades too).
             self.loom_hits = 0
+            self.approach = []
         else:
             pt, pd = self.prev_reading
             dt = now - pt
@@ -277,12 +283,18 @@ class Edge:
                 elif raw_cm < cfg.loom_range_cm and obj > cfg.loom_min_speed_cm_s:
                     ttc = raw_cm / obj * 1000.0
                     self.loom_hits = self.loom_hits + 1 if ttc < cfg.loom_ttc_ms else 0
+                    if not self.approach:
+                        self.approach.append((pt, pd, own))
+                    self.approach = (self.approach + [(now, raw_cm, own)])[-8:]
                 else:
                     ttc = None
                     self.loom_hits = 0
+                    self.approach = []
+                if ttc is None:
+                    self.approach = []
                 if (reflexes and self.loom_hits >= cfg.loom_agree
                         and now - self.escape_end_ms >= cfg.escape_cooldown_ms):
-                    self._start_escape(raw_cm, ttc, now)
+                    self._on_loom(raw_cm, ttc, self._approach_speed(obj), now)
         self.prev_reading = (now, raw_cm) if raw_cm is not None else None
 
     def on_battery(self, volts: float, now: int) -> None:
@@ -295,22 +307,64 @@ class Edge:
 
     # ------------------------------------------------------------------ escape
 
-    def hab_level(self) -> float:
-        """Current looming habituation, 0 = full response (contract 3.3 status.hab). Step 5.8."""
-        return 0.0
+    # Habituation (plan step 5.8): one level h (0 = full response) that rises with every looming
+    # stimulus and recovers with rest. A stimulus clearly faster than the recent ones (by
+    # hab_dishab_ratio) gets the full response and resets h: dishabituation. (Per-speed-class levels
+    # were tried first; the ultrasonic speed estimate is too noisy to classify stimuli reliably.)
 
-    def _start_escape(self, d_cm: float, ttc: float, now: int) -> None:
+    def _approach_speed(self, last_estimate: float) -> float:
+        """The object's approach speed over the whole approach run (up to 8 readings), for
+        classifying the stimulus: one pair of readings 50 ms apart is too noisy (a 0.7 m/s object
+        reads 43-124 cm/s that way)."""
+        if len(self.approach) < 3:
+            return last_estimate
+        (t0, d0, _), (t1, d1, _) = self.approach[0], self.approach[-1]
+        own = sum(o for _, _, o in self.approach) / len(self.approach)
+        return (d0 - d1) * 1000.0 / (t1 - t0) - own if t1 > t0 else last_estimate
+
+    def hab_level(self, now: int | None = None) -> float:
+        """Current looming habituation level (contract 3.3 status.hab)."""
+        now = (self.last_update or 0) if now is None else now
+        level, t = self.hab
+        return level * math.exp(-max(0, now - t) / self.cfg.hab_tau_ms) if level else 0.0
+
+    def _on_loom(self, d_cm: float, ttc: float, obj_cm_s: float, now: int) -> None:
+        """A looming stimulus was detected: respond according to habituation, then habituate."""
+        cfg = self.cfg
+        h = self.hab_level(now) if cfg.hab_enabled else 0.0
+        dishab = (cfg.hab_enabled and h >= cfg.hab_dishab_min and self.hab_ref is not None
+                  and obj_cm_s >= cfg.hab_dishab_ratio * self.hab_ref)
+        resp = 1.0 if dishab else round(1.0 - h, 2)              # reported exactly as used (2 dp)
+        if resp < cfg.hab_min_resp:
+            resp = 0.0
+        if cfg.hab_enabled:
+            if dishab:
+                self.hab, self.hab_ref = (0.0, now), obj_cm_s     # dishabituation: start afresh
+            else:
+                self.hab = (h + cfg.hab_step * (1.0 - h), now)
+                self.hab_ref = obj_cm_s if self.hab_ref is None else (
+                    self.hab_ref + cfg.hab_ref_alpha * (obj_cm_s - self.hab_ref))
+        self.stats["looms"] += 1
+        self.loom_hits = 0
+        ev = {"e": "escape", "ttc": int(min(max(round(ttc), 0), 10000)), "d": round(min(max(d_cm, 2.0), 400.0), 1),
+              "resp": resp, "hab": round(min(max(h, 0.0), 1.0), 2)}
+        if resp > 0:
+            self._start_escape(ev, resp, now)
+        else:
+            self.stats["habituated"] += 1
+            self.escape_end_ms = now                              # cooldown: one stimulus counts once
+            self._emit(**ev)                                      # seen, not acted on (no lat)
+
+    def _start_escape(self, ev: dict, resp: float, now: int) -> None:
         cfg = self.cfg
         self.escape_return = self.state
         self._set_state(ESCAPE)
-        self.escape_reverse_until = now + cfg.escape_reverse_ms
-        self.escape_turn_until = self.escape_reverse_until + cfg.escape_turn_ms
+        self.escape_reverse_until = now + int(round(cfg.escape_reverse_ms * resp))
+        self.escape_turn_until = self.escape_reverse_until + int(round(cfg.escape_turn_ms * resp))
+        self.escape_speed_now = cfg.escape_speed * resp
         self.escape_turn_dir = 1.0 if self.rand() < 0.5 else -1.0
-        self.loom_hits = 0
         self.stats["escapes"] += 1
-        self.escape_pending = {"e": "escape", "ttc": int(min(max(round(ttc), 0), 10000)),
-                               "d": round(min(max(d_cm, 2.0), 400.0), 1), "detected_ms": now,
-                               "resp": 1.0, "hab": 0.0}          # habituation: plan step 5.8
+        self.escape_pending = {**ev, "detected_ms": now}
 
     # ------------------------------------------------------------------ main step
 
@@ -344,9 +398,9 @@ class Edge:
         if self.state == ESCAPE:
             immediate = True
             if now < self.escape_reverse_until:
-                target = (-cfg.escape_speed, -cfg.escape_speed)
+                target = (-self.escape_speed_now, -self.escape_speed_now)
             elif now < self.escape_turn_until:
-                s = cfg.escape_speed * self.escape_turn_dir
+                s = self.escape_speed_now * self.escape_turn_dir
                 target = (-s, s)
             else:
                 self.escape_end_ms = now

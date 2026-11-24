@@ -40,7 +40,14 @@ class EdgeConfig:
     escape_turn_ms: int = 450
     escape_speed: float = 0.7
     escape_cooldown_ms: int = 1000
-    hab_enabled: bool = True             # looming habituation (plan step 5.8); off = always full response
+    # --- looming habituation (plan step 5.8): one level, short-term depression ---
+    hab_enabled: bool = True             # off = always the full response
+    hab_step: float = 0.3                # after each stimulus: h += hab_step * (1 - h)
+    hab_tau_ms: int = 60000              # recovery: h decays with this time constant
+    hab_min_resp: float = 0.2            # response = 1 - h; below this the robot does not move
+    hab_dishab_ratio: float = 1.5        # a stimulus this much faster than recent ones dishabituates ...
+    hab_dishab_min: float = 0.05         # ... (only while habituated at least this much)
+    hab_ref_alpha: float = 0.3           # recent-stimulus speed: running average, weight of the newest
 
     # --- obstacle stop ---
     obstacle_stop_cm: float = 12.0       # block forward motion closer than this

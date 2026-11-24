@@ -376,6 +376,10 @@ the dashboard can set them with `brain/control` `c:"state"` (contract revision 8
   experiments use it to make fed (0) and hungry (1) animals.
 - **Fear** jumps by 0.5 × the escape strength on each `escape` event from the robot (`resp`, so a
   habituated, unacted threat does not frighten) and decays with τ = 20 s.
+- **Habituation** (5.8) runs on the robot, next to the escape reflex (see
+  [sim/README.md](../sim/README.md#looming-habituation-plan-step-58)). The brain mirrors the level the
+  robot reports (`status.hab`, `escape.hab`) into `brain/state.hab`. Lesion `hab` answers
+  `ack.ok = false`: no brain command reaches the robot's reflex.
 
 **Coupling in the designed circuit**, chosen by criteria fixed before any behaviour was measured:
 
