@@ -17,7 +17,7 @@
     "d": { "type": "number", "minimum": 2, "maximum": 400, "description": "escape/obstacle: distance at trigger, cm (1 dp)." },
     "lat": { "type": "number", "minimum": 0, "maximum": 1000, "description": "escape: detection-to-motor time on the ESP32, ms (1 dp). Only when resp > 0." },
     "resp": { "type": "number", "minimum": 0, "maximum": 1, "description": "escape: response strength used, 0-1 (2 dp). 0 = looming detected but habituated: the robot did not move." },
-    "hab": { "type": "number", "minimum": 0, "maximum": 1, "description": "escape: habituation of this stimulus class just before it, 0-1 (2 dp)." },
+    "hab": { "type": "number", "minimum": 0, "maximum": 1, "description": "escape: habituation level just before the stimulus, 0-1 (2 dp)." },
     "why": {
       "enum": ["cmd_timeout", "ttl_expired", "wifi_lost", "mqtt_lost"],
       "description": "fallback_on: reason."

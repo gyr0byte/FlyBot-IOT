@@ -145,7 +145,7 @@ Extra keys per event type (each type allows **only** its own keys):
 | `escape` | `ttc` | integer | ms | 0 … 10000 | 0 | Time-to-contact when the looming stimulus was detected. |
 | | `d` | number | cm | 2.0 … 400.0 | 1 | Distance at detection. |
 | | `resp` | number | – | 0.00 … 1.00 | 2 | Escape strength used (scales the reverse and turn). `0` = detected but habituated: the robot did not move. |
-| | `hab` | number | – | 0.00 … 1.00 | 2 | Habituation of this stimulus class just before the stimulus (0 = full response). |
+| | `hab` | number | – | 0.00 … 1.00 | 2 | Habituation level just before the stimulus (0 = full response). |
 | | `lat` | number | ms | 0.0 … 1000.0 | 1 | Detection-to-motor time measured on the ESP32. Present **only** when `resp` > 0. |
 | `obstacle` | `d` | number | cm | 2.0 … 400.0 | 1 | Distance at which the obstacle stop fired. |
 | `fallback_on` | `why` | string | – | `cmd_timeout`, `ttl_expired`, `wifi_lost`, `mqtt_lost` | – | Why the robot entered local fallback. |
@@ -158,8 +158,8 @@ Extra keys per event type (each type allows **only** its own keys):
 Reward/punish button presses go to `reward` (with `src:"btn"`), not to `events`.
 
 **Habituation (revision 8).** The looming escape habituates on the robot: repeated harmless
-stimuli of the same kind give weaker escapes, recovering with rest, and a stronger stimulus gives
-the full response again. `escape` is therefore sent for **every** looming detection, including
+stimuli give weaker escapes, recovering with rest, and a clearly stronger (faster-approaching)
+stimulus than the recent ones gives the full response again and resets the habituation. `escape` is therefore sent for **every** looming detection, including
 fully habituated ones (`resp` 0, no `lat`), so the brain and dashboard can follow habituation even
 when the robot does not move. The current level is also in `status.hab` (§3.3).
 
@@ -198,7 +198,7 @@ publishes the same message itself before disconnecting.
 | `rtt` | number \| null | ms | 0.0 … 60000.0 | 1 | Median ping→pong round-trip time over the last 10 s. `null` if no pongs. |
 | `crtt` | number \| null | ms | 0.0 … 60000.0 | 1 | Median sensor→`cmd/motor` round-trip time over the last 10 s, from the `rs` echo. `null` if none. |
 | `fw` | string | – | 1–16 chars, `[0-9A-Za-z.+-]` | – | Firmware version. |
-| `hab` | number | – | 0.00 … 1.00 | 2 | Current habituation of the looming escape: the highest level over stimulus classes (0 = full response). |
+| `hab` | number | – | 0.00 … 1.00 | 2 | Current habituation level of the looming escape (0 = full response). |
 
 When `st` is `offline` the message has **only** `v`, `seq`, `up`, `bid`, `st`. It is fixed at connect
 time, so `seq` is 0, `up` is the uptime at connect, and `bid` is the current boot's ID.
@@ -832,4 +832,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | 5 | 2026-11-23 | MQ-3 warm-up: `brain/state` → `v = 4` with new `dec` value `warmup` (odour `null`, brain sends no `cmd/motor`, `sens` stays `ok`). §5 states the boot hold explicitly: motors off, commands ignored, no watchdog, leave `boot` only after odour calibration. |
 | 6 | 2026-11-23 | Boot ID: new field `bid` (random 1…4294967295 per robot boot) on every robot message: `sensors`, `events`, `status` (incl. last will) and `ping` → `v = 2`; `reward` → `v = 3` (`bid` required when `src` is `btn`, absent otherwise). §6 rule 4: a `bid` change is a reboot; with the same `bid`, `seq` alone decides duplicate / late / lost. §7.1 (3): the reboot step is a `bid` change. Other senders unchanged. |
 | 7 | 2026-11-24 | Lockstep (§7.1 (5)): the simulator's wait for `cmd/motor` is 100 ms for interactive runs and 2000 ms for batch and experiment runs, so host stalls cannot change batch results; timeouts are counted per trial. No payload or `v` changes. |
-| 8 | 2026-11-24 | Habituation visibility and state control: `events` → `v = 3` (`escape` sent for every looming detection, with `resp` and `hab`; `lat` only when `resp` > 0); `status` → `v = 3` (`hab`); `brain/state` → `v = 5` (`hab`); `brain/control` → `v = 4` (command `state` with `hun` / `fear`). Lesion `hab` answers `ack.ok = false` (habituation is robot-side). |
+| 8 | 2026-11-24 | Habituation visibility and state control: `events` → `v = 3` (`escape` sent for every looming detection, with `resp` and `hab`; `lat` only when `resp` > 0); `status` → `v = 3` (`hab`); `brain/state` → `v = 5` (`hab`); `brain/control` → `v = 4` (command `state` with `hun` / `fear`). Lesion `hab` answers `ack.ok = false` (habituation is robot-side). Habituation is one level (wording settled during step 5.8: a clearly faster stimulus dishabituates, no per-class levels). |

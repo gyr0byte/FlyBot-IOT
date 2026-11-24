@@ -37,7 +37,7 @@
       "pattern": "^[0-9A-Za-z.+-]{1,16}$",
       "description": "Firmware version."
     },
-    "hab": { "type": "number", "minimum": 0, "maximum": 1, "description": "Current habituation of the looming escape: highest level over stimulus classes, 0-1 (2 dp). 0 = full response." }
+    "hab": { "type": "number", "minimum": 0, "maximum": 1, "description": "Current habituation level of the looming escape, 0-1 (2 dp). 0 = full response." }
   },
   "required": ["v", "seq", "up", "bid", "st"],
   "additionalProperties": false,
