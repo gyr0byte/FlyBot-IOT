@@ -18,19 +18,19 @@ from typing import Callable
 
 from .config import REPO, Scenario, check_training_starts, load_scenario, phase_starts
 from flybot_contract import Contract
-from .runner import run_lockstep, run_realtime, trial_done
+from .runner import BATCH_WAIT_MS, run_lockstep, run_realtime, trial_done
 from .sim import Simulation
 
 log = logging.getLogger("flybot_sim.batch")
 
 COLUMNS = ["trial", "seed", "scenario", "mode", "controller", "phase", "start_index", "start_x", "start_y",
            "start_heading_deg", "reached", "reached_label", "reward_sent", "time_to_source_s", "path_length_m",
-           "collisions", "escapes", "fallback_time_s", "messages_lost", "rtt_median_ms", "crtt_median_ms",
+           "collisions", "escapes", "fallback_time_s", "messages_lost", "lockstep_timeouts", "rtt_median_ms", "crtt_median_ms",
            "sim_duration_s", "wall_duration_s"]
 
 
 def run_trials(sc: Scenario, trials: int, controller: str, realtime: bool, out: Path,
-               link_factory: Callable[[Contract], object]) -> list[dict]:
+               link_factory: Callable[[Contract], object], wait_ms: int = BATCH_WAIT_MS) -> list[dict]:
     contract = Contract()
     mode = "realtime" if realtime else "lockstep"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -44,10 +44,11 @@ def run_trials(sc: Scenario, trials: int, controller: str, realtime: bool, out: 
             sim = Simulation(sc, link, contract, start_index=i, seed=seed, lockstep=not realtime)
             wall0 = time.perf_counter()
             try:
+                timeouts = None
                 if realtime:
                     run_realtime(sim, trial_done(sc.duration_s))
                 else:
-                    run_lockstep(sim, trial_done(sc.duration_s))
+                    timeouts = run_lockstep(sim, trial_done(sc.duration_s), wait_ms=wait_ms).timeouts
             finally:
                 link.stop()
             r = sim.results()
@@ -60,7 +61,7 @@ def run_trials(sc: Scenario, trials: int, controller: str, realtime: bool, out: 
                 "time_to_source_s": r["time_to_source_s"], "path_length_m": r["path_length_m"],
                 "collisions": r["collisions"], "escapes": r["escapes"],
                 "fallback_time_s": r["fallback_time_s"], "messages_lost": r["messages_lost"],
-                "rtt_median_ms": r["rtt_median_ms"], "crtt_median_ms": r["crtt_median_ms"],
+                "lockstep_timeouts": timeouts, "rtt_median_ms": r["rtt_median_ms"], "crtt_median_ms": r["crtt_median_ms"],
                 "sim_duration_s": round(sim.trial_time_s(), 2),
                 "wall_duration_s": round(time.perf_counter() - wall0, 2),
             }
@@ -74,7 +75,8 @@ def run_trials(sc: Scenario, trials: int, controller: str, realtime: bool, out: 
 
 
 def run_experiment(sc: Scenario, controller: str, out: Path, link_factory: Callable[[Contract], object],
-                   on_phase_end: Callable[[str, list[dict]], None] | None = None) -> list[dict]:
+                   on_phase_end: Callable[[str, list[dict]], None] | None = None,
+                   wait_ms: int = BATCH_WAIT_MS) -> list[dict]:
     """Run a scenario's experiment phases in lockstep, one animal (the brain keeps what it learns:
     run the brain WITHOUT --reset-on-reboot). Seeds continue across phases (scenario seed + trial)."""
     if sc.experiment is None:
@@ -100,7 +102,7 @@ def run_experiment(sc: Scenario, controller: str, out: Path, link_factory: Calla
                                  hold_after_reward_s=sc.experiment.hold_after_reward_s)
                 wall0 = time.perf_counter()
                 try:
-                    run_lockstep(sim, trial_done(sc.duration_s))
+                    timeouts = run_lockstep(sim, trial_done(sc.duration_s), wait_ms=wait_ms).timeouts
                 finally:
                     link.stop()
                 r, sp = sim.results(), sim.start
@@ -111,7 +113,7 @@ def run_experiment(sc: Scenario, controller: str, out: Path, link_factory: Calla
                        "reward_sent": r["reward_sent"], "time_to_source_s": r["time_to_source_s"],
                        "path_length_m": r["path_length_m"], "collisions": r["collisions"], "escapes": r["escapes"],
                        "fallback_time_s": r["fallback_time_s"], "messages_lost": r["messages_lost"],
-                       "rtt_median_ms": None, "crtt_median_ms": None,
+                       "lockstep_timeouts": timeouts, "rtt_median_ms": None, "crtt_median_ms": None,
                        "sim_duration_s": round(sim.trial_time_s(), 2),
                        "wall_duration_s": round(time.perf_counter() - wall0, 2)}
                 w.writerow({k: ("" if v is None else v) for k, v in row.items()})

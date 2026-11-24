@@ -30,7 +30,9 @@ class BaselineController(Controller):
         self.seed = seed
         self.reset()
 
-    def reset(self) -> None:
+    def reset(self, seed: int | None = None) -> None:
+        if seed is not None:
+            self.seed = int(seed)
         self.rng = random.Random(self.seed)
         self.motor = MotorLayer(self.motor_p, self.rng)
         self.sl: float | None = None

@@ -7,6 +7,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
+
+def trial_seed(base: int, boot: int) -> int:
+    """Seed for the boot-th robot boot this brain has seen (0 = the first): boot 0 uses the base seed,
+    later boots a seed derived from (base, boot). Deterministic, so a batch can be re-run exactly, and
+    (base, boot) pairs never collide the way base + boot would (animal 1 boot 1 vs animal 2 boot 0)."""
+    if boot == 0:
+        return int(base)
+    return int(np.random.SeedSequence([int(base) & 0xFFFFFFFF, int(boot)]).generate_state(1)[0])
+
 
 @dataclass(frozen=True)
 class Inputs:
@@ -30,8 +41,8 @@ class Decision:
 class Controller:
     name = "base"
 
-    def reset(self) -> None:
-        """Forget internal state (and re-seed randomness) as if freshly started."""
+    def reset(self, seed: int | None = None) -> None:
+        """Forget internal state and re-seed randomness (with seed, if given, else the current seed)."""
 
     def step(self, inp: Inputs) -> Decision:
         raise NotImplementedError

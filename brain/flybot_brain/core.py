@@ -27,6 +27,7 @@ from flybot_contract import Contract, Outbox, RobotClock, StreamTracker
 
 from .config import BrainConfig, set_param
 from .controllers import Inputs, make_controller
+from .controllers.base import trial_seed
 from .persistence import Snapshots
 
 log = logging.getLogger("flybot_brain")
@@ -174,14 +175,16 @@ class Brain:
         experiment.reset_on_reboot is set (independent batch trials)."""
         self.counters["reboots"] += 1
         if self.cfg.experiment.reset_on_reboot:
-            self._reset_internal("all")
-            log.info("robot rebooted: internal state reset (experiment.reset_on_reboot)")
+            seed = trial_seed(self.cfg.seed, self.counters["reboots"])   # one noise sequence per trial
+            self._reset_internal("all", seed=seed)
+            log.info("robot rebooted (boot %d): internal state reset, seed %d (experiment.reset_on_reboot)",
+                     self.counters["reboots"], seed)
         else:
             log.info("robot rebooted: internal state kept")
 
-    def _reset_internal(self, what: str) -> None:
+    def _reset_internal(self, what: str, seed: int | None = None) -> None:
         if what in ("state", "all"):
-            self.ctrl.reset()
+            self.ctrl.reset(seed)
             self.hun = self.fear = 0.0
         if what in ("weights", "all"):
             self.ctrl.reset_learning()

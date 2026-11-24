@@ -56,8 +56,10 @@ class NeuralController(Controller):
 
     # ------------------------------------------------------------------ state
 
-    def reset(self) -> None:
+    def reset(self, seed: int | None = None) -> None:
         """Dynamic state only (smoothing, membranes, traces); learned weights are kept."""
+        if seed is not None:
+            self.seed = self.net.seed = int(seed)
         self.net.reset()
         self.rng = random.Random(self.seed)
         self.motor = MotorLayer(self.motor_p, self.rng)

@@ -107,3 +107,18 @@ def test_circuit_without_steering_outputs_is_rejected(tmp_path):
     m.write_text(m.read_text().replace("steer_right:", "other:"))
     with pytest.raises(CircuitError, match="steer_right"):
         ctl(circuit=str(tmp_path / "c"))
+
+
+def test_reset_with_a_seed_changes_the_noise_and_is_reproducible():
+    from flybot_brain.config import BrainConfig
+    from flybot_brain.controllers.base import Inputs
+    from flybot_brain.controllers.neural import NeuralController
+
+    def run(seed):
+        c = NeuralController(BrainConfig(controller="neural", seed=1))
+        c.reset(seed)
+        for t in range(1, 21):
+            c.step(Inputs(0.2, 0.1, 150.0, 0.8, 7.9, 50, t * 50))
+        return c.spikes()
+    assert run(5) == run(5)
+    assert run(5) != run(6)

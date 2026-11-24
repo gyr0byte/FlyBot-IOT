@@ -16,7 +16,8 @@ from typing import Callable
 
 from .sim import Simulation
 
-WAIT_MS = 100
+WAIT_MS = 100        # interactive lockstep (contract 7.1 (5))
+BATCH_WAIT_MS = 2000  # batch / experiment runs: a host stall must not change the result (7.1 (5))
 MAX_TIMEOUTS = 3
 PROBE_MS = 2.0   # free run: still listen this long after each sensors message
 

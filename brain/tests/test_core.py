@@ -7,6 +7,7 @@ import pytest
 
 from flybot_brain.config import BrainConfig
 from flybot_brain.controllers import Controller, Decision
+from flybot_brain.controllers.base import trial_seed
 from flybot_brain.core import Brain
 from flybot_brain.link import BrainLink
 from flybot_brain.config import MqttSettings
@@ -30,10 +31,11 @@ class Recorder(Controller):
     name = "rec"
 
     def __init__(self):
-        self.inputs, self.resets = [], 0
+        self.inputs, self.resets, self.seeds = [], 0, []
 
-    def reset(self):
+    def reset(self, seed=None):
         self.resets += 1
+        self.seeds.append(seed)
 
     def step(self, inp):
         self.inputs.append(inp)
@@ -143,6 +145,27 @@ def test_reset_on_reboot_flag():
     b.hun = 0.7
     b.handle("sensors", sensors(0, 10, bid=99))
     assert b.ctrl.resets == 1 and b.hun == 0.0
+
+
+def test_each_reset_trial_gets_its_own_reproducible_seed():
+    """reset_on_reboot: boot n (boot-id changes since start) re-seeds with trial_seed(base, n), so trials
+    do not replay one noise sequence, and re-running a batch gives the same seeds."""
+    runs = []
+    for _ in range(2):
+        b, wall = make(reset_on_reboot=True)
+        feed(b, wall, 2, start_up=5000)
+        for k, bid in enumerate((11, 12, 13)):
+            b.handle("sensors", sensors(0, 10, bid=bid))
+        runs.append(b.ctrl.seeds)
+    assert runs[0] == runs[1] == [trial_seed(b.cfg.seed, n) for n in (1, 2, 3)]
+    assert len(set(runs[0])) == 3 and b.cfg.seed not in runs[0]
+
+
+def test_trial_seed_is_deterministic_and_pairs_do_not_collide():
+    assert trial_seed(7, 0) == 7
+    assert trial_seed(7, 3) == trial_seed(7, 3)
+    seeds = {trial_seed(base, n) for base in range(1, 30) for n in range(1, 40)}
+    assert len(seeds) == 29 * 39
 
 
 # ----------------------------------------------------------------------------- warm-up, stale, paused
