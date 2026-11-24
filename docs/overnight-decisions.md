@@ -75,3 +75,31 @@ on D:.
     logger, logger API, dashboard, optional simulator); closing a window stops that part. No
     background services (as decided in Phase 2).
 
+## Phase 10 – Telegram bot
+
+14. **Transport.** Options: python-telegram-bot (async framework, extra dependency), aiogram, or the
+    Bot API directly. Chosen: the Bot API over HTTPS with the standard library (getUpdates long
+    polling, sendMessage), behind a small interface with a fake for tests. Why: two calls are all we
+    need, no new dependency, easy to test without a token.
+
+15. **Several allowed chats without a new variable.** `TELEGRAM_ALLOWED_CHAT_ID` (already in
+    `.env.example`) now accepts a comma-separated list. Why: the plan mentions adding a demo chat;
+    keeping the existing name avoids touching `.env.example` semantics. Messages from other chats
+    are ignored silently (logged), not answered.
+
+16. **`/resume` added.** `/stop` publishes a retained `estop`, which only `cmd/mode` `auto` or
+    `manual` clears (contract §5). Without `/resume` the phone could stop the robot but never
+    restart it. `/resume` publishes `auto`; the bot is allowed to publish `cmd/mode`.
+
+17. **Alerts beyond the list.** Also "brain went offline / back online" (from `brain/status`), and
+    "caught up" after a lag alert, and "fallback ended". Why: the same transitions as the requested
+    alerts, and a lag alert without its end is confusing. No alert on the first status after the bot
+    starts (that is the current state, not a change).
+
+18. **Learned-preference alert levels.** Announced when |pref| ≥ 0.5 (the dashboard and the
+    learning results call that a clear preference), once per cue and sign; re-armed below 0.25.
+
+19. **Where it runs.** In the brain program on its own connection (user `bot`), as the plan says;
+    it starts only when a real-looking token and a chat ID are set, so the brain runs unchanged
+    without them; `--no-bot` and the experiment tools switch it off.
+

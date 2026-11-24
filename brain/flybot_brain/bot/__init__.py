@@ -1,6 +1,4 @@
-"""Telegram bot module (Phase 10): not built yet.
-
-Will run in this program on its OWN MQTT connection as user "bot" (narrow ACL: cmd/mode,
-reward, brain/sleep), answer only TELEGRAM_ALLOWED_CHAT_ID, and send alerts from status,
-events, brain/status and brain/state.
+"""Telegram bot module (Phase 10): its OWN MQTT connection as user "bot" (narrow ACL: cmd/mode, reward,
+brain/sleep), answers only TELEGRAM_ALLOWED_CHAT_ID, sends alerts from status, events, brain/status and
+brain/state. Logic in core.Bot (no I/O), transport in telegram.py, wiring in runner.py.
 """

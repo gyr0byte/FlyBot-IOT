@@ -7,7 +7,7 @@ One Python program, `python -m flybot_brain`, made of separate modules:
 | `core.py` + `controllers/` | **Phase 4–5** | Contract rules, control ticks, baseline and neural controllers | `brain` |
 | `network/` + `circuits/` | **Phase 5** | Spiking network engine with dopamine-gated plasticity; circuits as data (designed now, FlyWire in 5.13) | – |
 | `logger/` | **Phase 8** | Every `flybot/01/#` message → SQLite, on the brain's connection; CSV export; read API | `brain` |
-| `bot/` | Phase 10 | Telegram alerts and commands, own connection with a narrow ACL | `bot` |
+| `bot/` | **Phase 10** | Telegram alerts and commands, own connection with a narrow ACL | `bot` |
 
 The modules talk only through MQTT. Contract code (schemas, sequence rules, robot clock) comes
 from the shared [`contract/`](../contract/README.md) package.
@@ -37,7 +37,7 @@ From the `brain` folder:
 .venv\Scripts\python -m flybot_brain --controller neural --no-persistence   # a naive brain
 ```
 
-Other options: `--config <yaml>`, `--seed N`, `--no-logger`, `-v`. **Ctrl+C** stops it cleanly: it saves snapshot
+Other options: `--config <yaml>`, `--seed N`, `--no-logger`, `--no-bot`, `-v`. **Ctrl+C** stops it cleanly: it saves snapshot
 `latest` and publishes `brain/status` offline. `--no-persistence` neither loads nor saves `latest`
 (each learning-experiment animal starts naive).
 
@@ -130,6 +130,50 @@ and `/api/reliability`. The dashboard's server calls it; the browser never does.
 **Checked live:** a brain with the logger and a 3-trial simulator batch recorded 2,158 sensor
 messages, 1,858 commands, 548 brain states, events, weights, status and latency, with 0 invalid and
 0 lost; the CSV export opened cleanly in pandas.
+
+## Telegram bot (Phase 10)
+
+A module of the brain program (`flybot_brain/bot/`) on its **own** MQTT connection as user `bot`
+(contract section 4: it reads `status`, `events`, `cmd/mode`, `brain/status`, `brain/state`; it may
+publish `cmd/mode`, `reward` and `brain/sleep` only). It starts with the brain when
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_ID` are set in `.env` (the `.env.example`
+placeholder does not count); `--no-bot` switches it off; `python -m flybot_brain.bot` runs it alone.
+
+**Commands** (only from allowed chats; others are ignored and logged):
+
+| Command | Does |
+|---|---|
+| `/status` | robot state, mode, battery, Wi-Fi, uptime; brain controller, sensor health, lag; decision and why; hunger, fear, habituation; lesions |
+| `/good`, `/bad` | `reward` +1 / −1 (`src: bot`) |
+| `/sleep`, `/wake` | `brain/sleep` (the brain decides and tells the robot) |
+| `/stop` | `cmd/mode` `estop` (retained) |
+| `/resume` | `cmd/mode` `auto` (retained): clears an e-stop from the phone |
+| `/learned` | the learned preferences (`brain/state.pref`) in words |
+| `/help` | the list |
+
+**Alerts** (to every allowed chat, once per event): robot offline / back online (from the retained
+status and its last will; not on the first message after start), brain offline / online, low battery
+(warning and cut-off), looming escape (at most one per 60 s, then "+N more"; habituated detections
+with `resp` 0 are not alerts), fallback entered / left, brain falling behind (`brain/status.lag`
+above 40) and caught up, and "Learned: the light = bad (−0.55)" when a preference passes ±0.5
+(re-armed when it falls back below 0.25).
+
+The logic (`bot/core.py`) has no I/O; `bot/telegram.py` holds the real client (Telegram Bot API over
+HTTPS, long polling, standard library only; the token is never logged) and a fake one used by the
+tests; `bot/runner.py` wires them to MQTT.
+
+### Setting it up (once)
+
+1. In Telegram, open **@BotFather**, send `/newbot`, choose a name and a username ending in `bot`.
+   BotFather replies with a token like `123456789:AAH...`.
+2. Open a chat with your new bot and send it any message (bots cannot write to you first).
+3. Find your chat ID: open `https://api.telegram.org/bot<token>/getUpdates` in a browser and read
+   `"chat":{"id": ...}` (or message **@userinfobot**).
+4. In the repository's `.env` (never committed) set
+   `TELEGRAM_BOT_TOKEN=<token>` and `TELEGRAM_ALLOWED_CHAT_ID=<your id>` (several IDs: comma-separated,
+   e.g. for a demo phone).
+5. Start the brain (`python -m flybot_brain`); it logs "telegram bot running for 1 chat(s)". Send
+   `/status`.
 
 ## Baseline controller
 

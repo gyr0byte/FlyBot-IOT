@@ -81,6 +81,8 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, help="override the config's random seed")
     ap.add_argument("--lesion", action="append", choices=["rcpt", "ln", "mb", "apl", "learn", "hun", "fear"],
                     help="start with this group / function switched off (repeatable; e.g. lesion batches)")
+    ap.add_argument("--no-bot", action="store_true",
+                    help="do not start the Telegram bot even if a token is configured")
     ap.add_argument("--no-logger", action="store_true",
                     help="do not record messages into the database (experiment tools use this)")
     ap.add_argument("--restore-lesions", action="store_true",
@@ -95,6 +97,10 @@ def main(argv=None) -> int:
     brain, link = build(args)
     cfg = brain.cfg
     logger = start_logger(cfg, link)
+    bot = None
+    if not args.no_bot:
+        from .bot.runner import start_bot
+        bot = start_bot(link.contract)
     log.info("controller %s, reset_on_reboot %s, seed %s, load snapshot %s, save snapshot %s", cfg.controller,
              cfg.experiment.reset_on_reboot, cfg.seed, cfg.persistence.load_on_start, cfg.persistence.save_on_exit)
     if not link.start():
@@ -109,6 +115,8 @@ def main(argv=None) -> int:
         if cfg.persistence.save_on_exit and brain.save("latest"):
             log.info("saved snapshot 'latest'")
         link.stop()
+        if bot is not None:
+            bot.stop()
         if logger is not None:
             logger.stop()
             log.info("logger: %d messages written", logger.written)
