@@ -1,6 +1,6 @@
 # FlyBot MQTT message contract
 
-**Contract revision:** 8 (2026-11-24). Each message type's current `v` is in the §1 table.
+**Contract revision:** 9 (2026-11-25). Each message type's current `v` is in the §1 table.
 
 This is the source of truth for every message between the FlyBot programs. Programs only
 talk through MQTT. If code and this document disagree, the code is wrong. The
@@ -37,7 +37,7 @@ program and uses the `brain` connection.
 | `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` | 2 |
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
 | `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 3 |
-| `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 2 |
+| `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 3 |
 | `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 5 |
 | `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` | 1 |
 | `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 4 |
@@ -329,19 +329,24 @@ offline message below (QoS 1, retained), registered by the brain when it connect
 | `tick` | number | ms | 0.0 … 10000.0 | 1 | Mean compute time per control tick over the last 10 s (budget: 50 ms). |
 | `ovr` | integer | – | 0 … 1000 | 0 | Ticks over budget in the last 10 s. |
 | `sens` | string | – | `ok`, `stale`, `none` | – | Sensor input: `ok` = fresh, `stale` = newest `sensors` message older than 250 ms (brain is silent on `cmd/motor`), `none` = no sensor message since the brain started. A change publishes `brain/status` immediately. |
+| `lag` | integer | messages | 0 … 100000 | 0 | Inbound messages received but not yet processed by the brain (its queue length when this status was built). When it rises above the brain's warning threshold (brain configuration, default 40 ≈ 2 s of `sensors`) or falls back below it, the brain logs it and publishes `brain/status` immediately. |
 
 When `st` is `offline` the message has **only** `v`, `seq`, `up`, `st` (`seq` 0, `up` at connect).
 
 ```json
-{"v":2,"seq":31,"up":310050,"st":"online","ctrl":"neural","tick":6.8,"ovr":0,"sens":"ok"}
+{"v":3,"seq":31,"up":310050,"st":"online","ctrl":"neural","tick":6.8,"ovr":0,"sens":"ok","lag":0}
 ```
 Sensor data has gone stale:
 ```json
-{"v":2,"seq":32,"up":312400,"st":"online","ctrl":"neural","tick":6.5,"ovr":0,"sens":"stale"}
+{"v":3,"seq":32,"up":312400,"st":"online","ctrl":"neural","tick":6.5,"ovr":0,"sens":"stale","lag":0}
+```
+The brain is falling behind (messages are queuing up faster than it processes them):
+```json
+{"v":3,"seq":33,"up":318700,"st":"online","ctrl":"neural","tick":21.4,"ovr":3,"sens":"ok","lag":57}
 ```
 Last will:
 ```json
-{"v":2,"seq":0,"up":1520,"st":"offline"}
+{"v":3,"seq":0,"up":1520,"st":"offline"}
 ```
 
 ### 3.10 `flybot/01/brain/state`
@@ -833,3 +838,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | 6 | 2026-11-23 | Boot ID: new field `bid` (random 1…4294967295 per robot boot) on every robot message: `sensors`, `events`, `status` (incl. last will) and `ping` → `v = 2`; `reward` → `v = 3` (`bid` required when `src` is `btn`, absent otherwise). §6 rule 4: a `bid` change is a reboot; with the same `bid`, `seq` alone decides duplicate / late / lost. §7.1 (3): the reboot step is a `bid` change. Other senders unchanged. |
 | 7 | 2026-11-24 | Lockstep (§7.1 (5)): the simulator's wait for `cmd/motor` is 100 ms for interactive runs and 2000 ms for batch and experiment runs, so host stalls cannot change batch results; timeouts are counted per trial. No payload or `v` changes. |
 | 8 | 2026-11-24 | Habituation visibility and state control: `events` → `v = 3` (`escape` sent for every looming detection, with `resp` and `hab`; `lat` only when `resp` > 0); `status` → `v = 3` (`hab`); `brain/state` → `v = 5` (`hab`); `brain/control` → `v = 4` (command `state` with `hun` / `fear`). Lesion `hab` answers `ack.ok = false` (habituation is robot-side). Habituation is one level (wording settled during step 5.8: a clearly faster stimulus dishabituates, no per-class levels). |
+| 9 | 2026-11-25 | Backlog visibility: `brain/status` → `v = 3` with `lag`, the number of inbound messages the brain has received but not yet processed; crossing the brain's warning threshold publishes `brain/status` immediately. |

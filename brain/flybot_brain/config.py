@@ -27,6 +27,7 @@ class Timing:
     stale_ms: int = 250
     status_every_s: float = 10.0
     weights_every_ms: int = 2000      # brain/weights at most this often (robot time, contract 3.11)
+    backlog_warn: int = 40            # unprocessed inbound messages above this: warning + brain/status (3.9 lag)
 
 
 @dataclass

@@ -110,14 +110,20 @@ class BrainLink:
 
     def _work(self) -> None:
         while self.running:
-            try:
-                name, msg, retained = self.inbox.get(timeout=POLL_S)
-                self._publish(self.brain.handle(name, msg, retained))
-            except queue.Empty:
-                pass
-            except Exception:                   # never let one bad message kill the brain
-                log.exception("error handling a message")
-            self._publish(self.brain.poll())
+            self._work_once(POLL_S)
+
+    def _work_once(self, timeout: float) -> None:
+        """Handle one inbound message (if any) and do the periodic checks. The queue length is passed
+        to the brain first, so it can report a backlog (contract 3.9 lag)."""
+        self.brain.backlog = self.inbox.qsize()
+        try:
+            name, msg, retained = self.inbox.get(timeout=timeout)
+            self._publish(self.brain.handle(name, msg, retained))
+        except queue.Empty:
+            pass
+        except Exception:                       # never let one bad message kill the brain
+            log.exception("error handling a message")
+        self._publish(self.brain.poll())
 
     def _publish(self, outs: list[Out]) -> None:
         for name, msg in outs:

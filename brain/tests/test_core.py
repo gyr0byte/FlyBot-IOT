@@ -354,7 +354,42 @@ def test_link_validates_incoming_and_answers_ping_at_once():
 def test_last_will_is_brain_status_offline():
     b, _ = make()
     link = BrainLink(MqttSettings("127.0.0.1", 1883, "brain", "x"), C, b)
-    assert link.lwt == {"v": 2, "seq": 0, "up": link.lwt["up"], "st": "offline"}
+    assert link.lwt == {"v": 3, "seq": 0, "up": link.lwt["up"], "st": "offline"}
+
+
+def test_backlog_above_the_threshold_is_warned_and_reported_at_once(caplog):
+    """Contract 3.9 lag (revision 9): crossing backlog_warn in either direction publishes
+    brain/status immediately, with a log line."""
+    b, wall = make()
+    feed(b, wall, 2)
+    b.poll()                                                   # initial status out of the way
+    assert b.poll() == []
+    b.backlog = b.cfg.timing.backlog_warn                      # at the threshold: not yet behind
+    assert b.poll() == []
+    b.backlog = b.cfg.timing.backlog_warn + 17
+    with caplog.at_level("WARNING", logger="flybot_brain"):
+        st = only(b.poll(), "brain/status")[0]
+    assert st["lag"] == 57 and "falling behind" in caplog.text
+    C.validate("brain/status", st)
+    assert b.poll() == []                                      # reported once, not on every poll
+    b.backlog = 3
+    st = only(b.poll(), "brain/status")[0]
+    assert st["lag"] == 3
+
+
+def test_link_passes_its_queue_length_to_the_brain():
+    b, wall = make()
+    link = BrainLink(MqttSettings("127.0.0.1", 1883, "brain", "x"), C, b)
+    sent = []
+    link.client.publish = lambda topic, payload, qos=0, retain=False: sent.append((topic, payload))
+    for i in range(45):
+        link._on_message(None, None, fake_msg(
+            "sensors", ('{"v":2,"seq":%d,"up":%d,"bid":2847193551,"ol":0.1,"or":0.1,"d":null,"lt":null,"bat":7}'
+                        % (i, i * 50)).encode()))
+    link._work_once(0.01)
+    assert b.backlog == 45
+    statuses = [p for t, p in sent if t == C.topic("brain/status")]
+    assert statuses and b'"lag":45' in statuses[-1]
 
 
 def test_quick_reboot_is_detected_by_boot_id_even_when_up_rises():

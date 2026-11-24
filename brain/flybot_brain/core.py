@@ -67,6 +67,8 @@ class Brain:
         self.why: list[str] = ["no_sensors"]
         self.last_rs: int | None = None
         self.ack: dict | None = None
+        self.backlog = 0                                 # inbound messages waiting (set by the link)
+        self.backlog_high = False
         self.hab = 0.0                                   # robot's looming habituation, as last reported
 
         self.next_state_ms = 0                  # robot time
@@ -258,6 +260,15 @@ class Brain:
     def poll(self) -> list[Out]:
         now = self.wall()
         outs: list[Out] = []
+        high = self.backlog > self.cfg.timing.backlog_warn          # contract 3.9 lag (revision 9)
+        if high != self.backlog_high:
+            if high:
+                log.warning("falling behind: %d inbound messages waiting (threshold %d)", self.backlog,
+                            self.cfg.timing.backlog_warn)
+            else:
+                log.info("caught up: %d inbound messages waiting", self.backlog)
+            self.backlog_high = high
+            self.status_dirty = True
         if self.last_sensors_wall is None:
             sens = "none"
         elif now - self.last_sensors_wall > self.cfg.timing.stale_ms / 1000.0:
@@ -285,7 +296,8 @@ class Brain:
         times = [c for _, c in self.tick_log]
         tick = round(min(sum(times) / len(times), 10000.0), 1) if times else 0.0
         ovr = min(sum(1 for c in times if c > TICK_BUDGET_MS), 1000)
-        return self._out("brain/status", st="online", ctrl=self.cfg.controller, tick=tick, ovr=ovr, sens=self.sens)
+        return self._out("brain/status", st="online", ctrl=self.cfg.controller, tick=tick, ovr=ovr, sens=self.sens,
+                         lag=min(self.backlog, 100000))
 
     def _state(self) -> Out:
         return self._out("brain/state", hun=round(self.hun, 2), fear=round(self.fear, 2),

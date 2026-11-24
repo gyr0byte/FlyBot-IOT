@@ -14,6 +14,7 @@ timing:
   stale_ms: 250             # wall clock: no sensors for this long -> sens stale (section 6 rule 11)
   status_every_s: 10        # wall clock: brain/status heartbeat
   weights_every_ms: 2000    # brain/weights at most this often (robot time)
+  backlog_warn: 40          # more unprocessed inbound messages than this (~2 s of sensors): warn, brain/status lag
 
 persistence:
   dir: .local/brain/snapshots   # relative to the repo root (git-ignored, on D:)
