@@ -11,7 +11,7 @@ TAU = 1000.0
 LR = 0.1
 
 
-def circuit(tmp_path, tau_mv=TAU):
+def circuit(tmp_path, tau_mv=TAU, elig=(None, None)):
     groups = [{"group": "kc", "size": 4, "model": "poisson", "side": "-", "spk_key": "kc"},
               {"group": "rew", "size": 3, "model": "poisson", "side": "-"},
               {"group": "dan", "size": 1, **LIF, "side": "-", "spk_key": "dp"},
@@ -20,13 +20,15 @@ def circuit(tmp_path, tau_mv=TAU):
     conns = [("kc_ma", k, j, 1.0, "exc") for k in range(4) for j in range(2)]
     conns += [("kc_mv", k, j, 1.0, "exc") for k in range(4) for j in range(2)]
     conns += [("rew_dan", r, 0, 10.0, "exc") for r in range(3)]
-    spec = lambda tau: {"rule": "three_factor", "lr": LR, "tau_elig_ms": tau, "w_min": 0.0, "w_max": 1.0}  # noqa: E731
+    def spec(tau, mode):
+        ps = {"rule": "three_factor", "lr": LR, "tau_elig_ms": tau, "w_min": 0.0, "w_max": 1.0}
+        return ps if mode is None else {**ps, "eligibility": mode}
     manifest = {"name": "plast", "source": {"kind": "designed"},
                 "inputs": {"kc0": {"group": "kc", "encoding": "poisson_rate", "base_hz": 0, "gain_hz": 1000},
                            "reward": {"group": "rew", "encoding": "poisson_rate", "base_hz": 0, "gain_hz": 1000}},
                 "outputs": {"approach": ["ma"], "avoid": ["mv"]},
-                "projections": [{"name": "kc_ma", "pre": "kc", "post": "ma", "scale": 0.1, "plastic": True, "plasticity": spec(TAU)},
-                                {"name": "kc_mv", "pre": "kc", "post": "mv", "scale": 0.1, "plastic": True, "plasticity": spec(tau_mv)},
+                "projections": [{"name": "kc_ma", "pre": "kc", "post": "ma", "scale": 0.1, "plastic": True, "plasticity": spec(TAU, elig[0])},
+                                {"name": "kc_mv", "pre": "kc", "post": "mv", "scale": 0.1, "plastic": True, "plasticity": spec(tau_mv, elig[1])},
                                 {"name": "rew_dan", "pre": "rew", "post": "dan", "scale": 1.0}]}
     modulation = [{"modulator_group": "dan", "modulator_index": 0, "target_group": "mv", "target_from": 0, "target_to": 2}]
     return write_circuit(tmp_path / "p", manifest, groups, conns, modulation=modulation)
@@ -127,3 +129,51 @@ def test_learning_switch(tmp_path):
 def test_shared_presynaptic_neurons_need_one_eligibility_time_constant(tmp_path):
     with pytest.raises(ValueError, match="same tau_elig_ms"):
         Network(circuit(tmp_path, tau_mv=500.0), seed=1)
+
+
+# ----------------------------------------------------------------------------- saturating eligibility
+
+def drop_after(tmp_path, mode, kc_ms):
+    """kc0 fires every step for kc_ms, then dopamine for 10 ms; returns the kc0 -> avoid weight drop."""
+    net = Network(circuit(tmp_path, elig=(mode, mode)), seed=1)
+    only_kc0(net, True)
+    net.run(kc_ms)
+    only_kc0(net, False)
+    dopamine(net, True)
+    net.run(10)
+    mv, pre = weights(net, "kc_mv")
+    return 1.0 - mv[pre == 0].mean(), net
+
+
+def test_saturating_tag_never_exceeds_one(tmp_path):
+    _, net = drop_after(tmp_path, "saturate", 200)
+    kc0 = net.offset["kc"]
+    assert 0.9 < net.elig[kc0] <= 1.0
+
+
+def test_saturating_tag_makes_depression_independent_of_kc_firing_rate(tmp_path):
+    sat_few, _ = drop_after(tmp_path, "saturate", 3)
+    sat_many, _ = drop_after(tmp_path, "saturate", 60)
+    assert sat_few == pytest.approx(sat_many, rel=0.05)
+    traces = {}
+    for n in (3, 6):                                     # the accumulating trace counts spikes
+        net = Network(circuit(tmp_path), seed=1)
+        only_kc0(net, True)
+        net.run(n)
+        traces[n] = net.elig[net.offset["kc"]]
+    assert traces[6] > 1.8 * traces[3] > 1.8 * 2.5
+
+
+def test_default_eligibility_is_accumulate(tmp_path):
+    c = circuit(tmp_path)
+    assert c.projections["kc_mv"].plasticity.eligibility == "accumulate"
+
+
+def test_projections_sharing_kcs_must_agree_on_eligibility(tmp_path):
+    with pytest.raises(ValueError, match="same eligibility"):
+        Network(circuit(tmp_path, elig=("saturate", "accumulate")), seed=1)
+
+
+def test_unknown_eligibility_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="eligibility"):
+        circuit(tmp_path, elig=("forever", "forever"))

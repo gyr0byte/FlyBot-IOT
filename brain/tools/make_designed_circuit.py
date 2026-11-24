@@ -48,7 +48,14 @@ LIF_KC = dict(LIF_PN, bias=0.0)
 N_MBON, N_DAN, N_DAN_IN = 10, 5, 10
 KC_MBON_P = 0.3                    # each KC -> each MBON with this probability
 W_KC_MBON = 1.0                    # initial = maximum: learning only depresses
-PLASTICITY = {"rule": "three_factor", "lr": 0.0003, "tau_elig_ms": 2500.0, "w_min": 0.0, "w_max": 1.0}
+# Saturating eligibility: a KC spike sets its tag to 1 (a coincidence tag, not a spike count), so the
+# change per dopamine pulse does not grow with KC firing rate. lr was chosen by a criterion fixed in
+# advance, on weights, not behaviour: for KCs active at the pulse, ~5-10% depression after one pairing
+# and ~50-70% after ten, without reaching w_min (measured: 6.5%; median 43%, 90th percentile 67%).
+# The earlier accumulating trace (+1 per spike, lr 0.0003) wiped active synapses to 0 within a few
+# pairings and pinned the valence at -1 for every odour (see brain/README.md, "Learning").
+PLASTICITY = {"rule": "three_factor", "lr": 0.001, "tau_elig_ms": 2500.0, "w_min": 0.0, "w_max": 1.0,
+              "eligibility": "saturate"}
 DAN_IN_GAIN_HZ = 200.0             # reward / punish input rate while a pulse is on
 SCALE_OUT = {"kc_mbon": 1.0, "dan_in": 0.15}      # DANs ~50 Hz during a reward pulse
 LIF_APL = dict(LIF_PN, tau_m_ms=10, bias=0.0)

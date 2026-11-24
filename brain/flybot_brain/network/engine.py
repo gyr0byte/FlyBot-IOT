@@ -93,8 +93,8 @@ class Network:
 
     def _init_plasticity(self) -> None:
         """Rule "three_factor" = dopamine-gated depression (the fly mushroom body's KC->MBON LTD):
-        each presynaptic neuron of a plastic projection keeps an eligibility trace (+1 per spike,
-        decaying with tau_elig_ms); when a modulator neuron spikes, every plastic synapse it gates
+        each presynaptic neuron of a plastic projection keeps an eligibility trace (+1 per spike, or
+        set to 1 per spike when eligibility is "saturate"; decaying with tau_elig_ms); when a modulator neuron spikes, every plastic synapse it gates
         (modulation.csv) changes by -lr * eligibility(pre), clipped to [w_min, w_max]."""
         c = self.circuit
         idx = np.flatnonzero(self.e_plastic)
@@ -107,6 +107,8 @@ class Network:
         self.p_post = self.e_post[idx].astype(np.int64)
         self.p_proj = self.e_proj[idx]
         self.elig_decay = np.ones(self.n)                        # per neuron; 1 = no trace kept
+        self.elig_cap = np.full(self.n, np.inf)                  # per neuron; 1.0 = saturating tag
+        cap_set = np.zeros(self.n, dtype=bool)
         for k, name in enumerate(self.projection_names):
             proj = c.projections[name]
             m = self.p_proj == k
@@ -124,6 +126,11 @@ class Network:
                 raise ValueError(f"projection {name!r}: plastic projections sharing presynaptic neurons "
                                  "must use the same tau_elig_ms")
             self.elig_decay[pres] = decay
+            cap = 1.0 if ps.eligibility == "saturate" else np.inf
+            if np.any(cap_set[pres] & (self.elig_cap[pres] != cap)):
+                raise ValueError(f"projection {name!r}: plastic projections sharing presynaptic neurons "
+                                 "must use the same eligibility")
+            self.elig_cap[pres], cap_set[pres] = cap, True
         self.p_raw0 = self.p_raw.copy()
         # Which plastic edges each modulator neuron gates.
         gates: dict[int, list[np.ndarray]] = {}
@@ -206,6 +213,8 @@ class Network:
         indptr, e_post, e_w, group_of = self.indptr, self.e_post, self.e_w, self.group_of
         plastic = self.p_raw.size > 0
         elig, elig_decay, is_mod = self.elig, self.elig_decay, self.is_modulator
+        elig_cap = self.elig_cap
+        saturating = bool(np.isfinite(elig_cap).any())
         s = self.spikes
         for t in range(n_steps):
             # 1. deliver last step's spikes (1 ms delay)
@@ -239,7 +248,10 @@ class Network:
             if plastic:
                 elig *= elig_decay
                 if s.size:
-                    elig[s] += 1.0
+                    if saturating:
+                        elig[s] = np.minimum(elig[s] + 1.0, elig_cap[s])
+                    else:
+                        elig[s] += 1.0
                     if self.learning:
                         mods = s[is_mod[s]]
                         if mods.size:

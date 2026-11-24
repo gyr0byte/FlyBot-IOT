@@ -25,6 +25,7 @@ FORMAT = 1
 MODELS = ("lif", "poisson")
 TYPES = {"exc": 1, "inh": -1, "mod": 0}
 RULES = ("three_factor",)
+ELIGIBILITY = ("accumulate", "saturate")   # +1 per presynaptic spike, or set to 1 (a saturating tag)
 ENCODINGS = ("poisson_rate",)
 SIDES = ("L", "R", "-")
 # The contract's brain/state.spk keys and brain/control lesion targets (contract 3.10, 3.12).
@@ -60,6 +61,7 @@ class Plasticity:
     tau_elig_ms: float
     w_min: float
     w_max: float
+    eligibility: str = "accumulate"
 
 
 @dataclass
@@ -253,14 +255,19 @@ def _load_projections(specs, groups) -> dict[str, Projection]:
             ps = spec.get("plasticity")
             if not isinstance(ps, dict):
                 _fail(where, "plastic projection needs a plasticity spec (rule, lr, tau_elig_ms, w_min, w_max)")
-            if set(ps) != {"rule", "lr", "tau_elig_ms", "w_min", "w_max"}:
-                _fail(where, f"plasticity keys must be rule, lr, tau_elig_ms, w_min, w_max (got {sorted(ps)})")
+            required = {"rule", "lr", "tau_elig_ms", "w_min", "w_max"}
+            if not required <= set(ps) <= required | {"eligibility"}:
+                _fail(where, "plasticity keys must be rule, lr, tau_elig_ms, w_min, w_max and optionally "
+                             f"eligibility (got {sorted(ps)})")
+            if ps.get("eligibility", "accumulate") not in ELIGIBILITY:
+                _fail(where, f"plasticity eligibility must be one of {ELIGIBILITY}, got {ps['eligibility']!r}")
             if ps["rule"] not in RULES:
                 _fail(where, f"plasticity rule must be one of {RULES}, got {ps['rule']!r}")
             plasticity = Plasticity(ps["rule"], _num(where + " lr", ps["lr"], positive=True),
                                     _num(where + " tau_elig_ms", ps["tau_elig_ms"], positive=True),
                                     _num(where + " w_min", ps["w_min"], nonneg=True),
-                                    _num(where + " w_max", ps["w_max"], positive=True))
+                                    _num(where + " w_max", ps["w_max"], positive=True),
+                                    ps.get("eligibility", "accumulate"))
             if plasticity.w_min > plasticity.w_max:
                 _fail(where, "w_min must not exceed w_max")
         elif spec.get("plasticity") is not None:

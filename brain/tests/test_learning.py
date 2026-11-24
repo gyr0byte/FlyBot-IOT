@@ -81,7 +81,7 @@ def test_reward_drives_reward_dans_and_punishment_drives_punishment_dans():
 
 def test_punishment_with_the_lit_cue_depresses_approach_synapses_and_makes_it_aversive():
     r = Runner()
-    r.pair(LIT, -1, n=4)
+    r.pair(LIT, -1, n=10)                                         # graded learning: ~10 pairings (circuit lr note)
     assert r.proj_weights("kc_ma").mean() < 0.97                  # approach synapses depressed ...
     assert np.all(r.proj_weights("kc_mv") == 1.0)                 # ... avoid synapses untouched
     v_lit, v_dark = r.valence(LIT), r.valence(DARK)
@@ -91,7 +91,7 @@ def test_punishment_with_the_lit_cue_depresses_approach_synapses_and_makes_it_av
 
 def test_reward_with_a_cue_makes_it_attractive():
     r = Runner()
-    r.pair(LIT, +1, n=4)
+    r.pair(LIT, +1, n=10)
     assert r.proj_weights("kc_mv").mean() < 0.97 and np.all(r.proj_weights("kc_ma") == 1.0)
     assert r.valence(LIT) > 0.2 and r.c.drive > 1.3
 
@@ -99,12 +99,21 @@ def test_reward_with_a_cue_makes_it_attractive():
 def test_delayed_punishment_still_teaches():
     """Button pressed 1.5 s after the cue ended: the eligibility trace (tau 2.5 s) bridges the gap."""
     now, late = Runner(), Runner()
-    now.pair(LIT, -1, n=3)
-    late.pair(LIT, -1, n=3, delay_ms=1500, cue_during_delay=False)
+    now.pair(LIT, -1, n=10)
+    late.pair(LIT, -1, n=10, delay_ms=1500, cue_during_delay=False)
     drop_now = 1.0 - now.proj_weights("kc_ma").mean()
     drop_late = 1.0 - late.proj_weights("kc_ma").mean()
     assert drop_late > 0.3 * drop_now
     assert late.valence(LIT) < -0.1
+
+
+def test_one_pairing_is_a_small_graded_change():
+    """Saturating eligibility: one pulse depresses active synapses by a few percent, not to w_min."""
+    r = Runner()
+    r.pair(LIT, -1, n=1)
+    w = r.proj_weights("kc_ma")
+    drop = 1.0 - w[w < 1.0]
+    assert drop.size > 100 and drop.max() < 0.15 and w.min() > 0.85
 
 
 def test_weights_summary_matches_the_contract():

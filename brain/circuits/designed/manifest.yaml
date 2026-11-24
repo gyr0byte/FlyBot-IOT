@@ -98,10 +98,11 @@ projections:
   plastic: true
   plasticity:
     rule: three_factor
-    lr: 0.0003
+    lr: 0.001
     tau_elig_ms: 2500.0
     w_min: 0.0
     w_max: 1.0
+    eligibility: saturate
 - name: kc_mv
   pre: kc
   post: mv
@@ -109,10 +110,11 @@ projections:
   plastic: true
   plasticity:
     rule: three_factor
-    lr: 0.0003
+    lr: 0.001
     tau_elig_ms: 2500.0
     w_min: 0.0
     w_max: 1.0
+    eligibility: saturate
 - name: rwd_dp
   pre: rwd
   post: dp
