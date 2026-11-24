@@ -166,7 +166,8 @@ def load_records(path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def run_animal(base, condition: str, k: int, out: Path, monitor: Monitor, config: str | None) -> list[dict]:
+def run_animal(base, condition: str, k: int, out: Path, monitor: Monitor, config: str | None,
+               extra: list[str] | None = None) -> list[dict]:
     sc, mirrored = animal_scenario(base, condition, k)
     problems = check_training_starts(sc)
     if problems:
@@ -181,7 +182,7 @@ def run_animal(base, condition: str, k: int, out: Path, monitor: Monitor, config
     folder.mkdir(parents=True, exist_ok=True)
     seed = k + 1
     monitor.reset()
-    brain = start_brain(seed, folder / f"brain-a{k:02d}.log", monitor, config)
+    brain = start_brain(seed, folder / f"brain-a{k:02d}.log", monitor, config, extra=extra)
     records = []
 
     def on_phase_end(phase: str, rows: list[dict]) -> None:

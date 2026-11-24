@@ -96,6 +96,41 @@ class NeuralController(Controller):
             out["lt"] = round(max(-1.0, min(1.0, self.pref_lt)), 2)
         return out
 
+    def lesion(self, target: str, off: bool) -> bool:
+        """Lesions (5.10): circuit groups tagged with the target are silenced; "learn" stops plasticity."""
+        if target == "learn":
+            self.net.learning = not off
+            (self.net.lesions.add if off else self.net.lesions.discard)("learn")
+            return True
+        return self.net.set_lesion(target, off)
+
+    def _explain(self, c: float, confidence: float, slow: float, inp: Inputs) -> list[str]:
+        """Main contributors to a seek / avoid decision, strongest first (brain/state.why, 5.10).
+
+        Scores, each 0..1: odour side = PN contrast x confidence; fear / hunger = their share of the
+        change in drive (at full strength each moves the valence by about 0.25, the drive by 0.5);
+        learned_* = the rest of the drive change beyond what fear, hunger and untrained noise (0.3)
+        explain; obstacle = how much the motor layer slows down."""
+        scores: dict[str, float] = {}
+        side = "odour_l" if c > 0 else "odour_r" if c < 0 else "odour"
+        scores[side] = abs(c) * confidence if c else 0.5 * confidence
+        change = self.drive - 1.0
+        fear_s, hun_s = 0.5 * inp.fear, 0.5 * inp.hun
+        if change < 0:
+            scores["fear"] = min(fear_s, -change)
+            rest = -change - scores["fear"]
+            if rest > 0.3:
+                scores["learned_avoid"] = min(1.0, rest)
+        else:
+            scores["hunger"] = min(hun_s, change) + 0.25 * hun_s     # hunger also raises the PN gain
+            rest = change - min(hun_s, change)
+            if rest > 0.3:
+                scores["learned_approach"] = min(1.0, rest)
+        if slow < 1.0:
+            scores["obstacle"] = 1.0 - slow
+        ranked = sorted((k for k, v in scores.items() if v > 0.05), key=lambda k: -scores[k])
+        return ranked[:3] or [side]
+
     def sleep_tick(self, dt_ms: int) -> None:
         """Asleep: no network input or output; labile depression is consolidated and keeps fading."""
         if dt_ms <= 0:
@@ -215,7 +250,7 @@ class NeuralController(Controller):
         elif not self.feeding and peak >= p.arrive_hz and self.drive > 0:
             self.feeding = True
         if self.feeding:
-            return Decision(0.0, 0.0, "eat", ["pn_high"] + learned)
+            return Decision(0.0, 0.0, "eat", ["at_source"] + (["hunger"] if inp.hun > 0.3 else []))
 
         # 2. obstacle (designed motor layer), turning towards the more active side if it is wanted
         prefer = None
@@ -238,8 +273,7 @@ class NeuralController(Controller):
             fwd *= min(1.0, max(p.speed_drive_min, self.drive))   # low drive (fear, punishment): slower
             side = "pn_left" if c > 0 else "pn_right" if c < 0 else "pn"
             dec = "avoid" if self.drive < 0 else "approach" if learned == ["learned_approach"] else "seek"
-            why = learned + [side] + (["obstacle"] if slow < 1.0 else [])
-            return Decision(fwd - turn, fwd + turn, dec, why[:3])
+            return Decision(fwd - turn, fwd + turn, dec, self._explain(c, confidence, slow, inp))
 
         # 4. no odour signal: wander (designed motor layer)
         return self.motor.wander(t, slow)

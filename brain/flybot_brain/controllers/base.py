@@ -49,6 +49,10 @@ class Controller:
     def step(self, inp: Inputs) -> Decision:
         raise NotImplementedError
 
+    def lesion(self, target: str, off: bool) -> bool:
+        """Switch a lesion target (contract 3.12) off or back on. False if this controller has none."""
+        return False
+
     def sleep_tick(self, dt_ms: int) -> None:
         """Called instead of step() while the brain is asleep (inputs ignored): consolidation (5.9)."""
 

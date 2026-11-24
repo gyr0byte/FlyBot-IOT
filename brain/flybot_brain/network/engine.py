@@ -145,6 +145,8 @@ class Network:
         self.is_modulator = np.zeros(self.n, dtype=bool)
         self.is_modulator[list(self.gates)] = True
         self.learning = True                                     # lesion "learn" switches this off (5.10)
+        self.silenced = np.zeros(self.n, dtype=bool)             # lesioned neurons never spike (5.10)
+        self.lesions: set[str] = set()
         self.plastic_changes = 0
 
     # Two-part synapse (step 5.9, D1): a weight's depression (initial - current) has a labile and a
@@ -214,6 +216,23 @@ class Network:
         self.counts = np.zeros(self.n_groups, dtype=np.int64)        # since take_spk()
         self.elig = np.zeros(self.n)                                 # eligibility traces (weights are kept)
 
+    # ------------------------------------------------------------------ lesions (step 5.10)
+
+    def lesion_targets(self) -> set[str]:
+        return {g.lesion_target for g in self.circuit.groups.values() if g.lesion_target}
+
+    def set_lesion(self, target: str, off: bool) -> bool:
+        """Silence (off=True) or restore every group whose lesion_target is target. False if the
+        circuit has no such group."""
+        groups = [name for name, g in self.circuit.groups.items() if g.lesion_target == target]
+        if not groups:
+            return False
+        for name in groups:
+            o = self.offset[name]
+            self.silenced[o:o + self.circuit.groups[name].size] = off
+        (self.lesions.add if off else self.lesions.discard)(target)
+        return True
+
     # ------------------------------------------------------------------ internal states (step 5.7)
 
     def _init_state_modulation(self) -> None:
@@ -276,6 +295,10 @@ class Network:
         L, n = self.n_lif, self.n
         P = n - L
         poisson_spikes = (self.rng.random((n_steps, P)) < self.rate_hz * (DT_MS / 1000.0)) if P else None
+        sil = self.silenced
+        any_sil = bool(sil.any())
+        if any_sil and P:
+            poisson_spikes[:, sil[L:]] = False                   # same random draws, lesioned ones dropped
         noise = self.rng.standard_normal((n_steps, L)) * self.noise if self.noisy else None
         v, i_syn, refrac = self.v, self.i_syn, self.refrac
         k_m, bias, thresh, reset, t_ref, decay = (self.k_m, self.bias, self.v_thresh, self.v_reset,
@@ -306,6 +329,8 @@ class Network:
             refrac -= 1
             # 3. spikes
             fired = np.flatnonzero(v >= thresh)
+            if any_sil and fired.size:
+                fired = fired[~sil[fired]]
             if fired.size:
                 v[fired] = reset[fired]
                 refrac[fired] = t_ref[fired]

@@ -13,7 +13,7 @@ Contract rules implemented here:
   - brain/state every 200 ms of robot time (and once a second wall time while no sensors arrive);
   - brain/status on change + every 10 s wall time, with sens ok / stale / none;
   - brain/sleep -> cmd/sleep why "user", repeated every 5 s of robot time while asleep;
-  - brain/control: param, save, load, reset (lesion: not supported until Phase 5).
+  - brain/control: param, save, load, reset, state, lesion (5.10; hab is robot-side: ok false).
 """
 from __future__ import annotations
 
@@ -72,6 +72,7 @@ class Brain:
         self.backlog = 0                                 # inbound messages waiting (set by the link)
         self.backlog_high = False
         self.hab = 0.0                                   # robot's looming habituation, as last reported
+        self.lesions: set[str] = set()                   # brain/state.les (5.10)
 
         self.next_state_ms = 0                  # robot time
         self.next_weights_ms = 0                # robot time
@@ -188,12 +189,34 @@ class Brain:
         self.tick_log.append((now, (time.perf_counter() - t_start) * 1000.0))
         return outs
 
+    def set_lesion(self, target: str, off: bool) -> bool:
+        """Lesion switch (contract 3.12, plan 5.10). hun / fear hold that state at 0; hab is robot-side
+        (no brain command reaches the reflex): False; everything else goes to the controller."""
+        if target == "hab":
+            log.info("lesion hab: habituation runs on the robot; not switchable from the brain")
+            return False
+        if target in ("hun", "fear"):
+            ok = True
+            if off:
+                if target == "hun":
+                    self.hun = 0.0
+                else:
+                    self.fear = 0.0
+        else:
+            ok = self.ctrl.lesion(target, off)
+        if ok:
+            (self.lesions.add if off else self.lesions.discard)(target)
+            log.info("lesion %s %s", target, "off" if off else "restored")
+        return ok
+
     def _advance_states(self, dt_ms: int) -> None:
         """Hunger rises and fear decays with robot time (5.7)."""
         if dt_ms <= 0:
             return
+        if "hun" in self.lesions:
+            self.hun = 0.0
         st = self.cfg.states
-        if st.hunger_rise_s > 0:
+        if st.hunger_rise_s > 0 and "hun" not in self.lesions:
             self.hun = min(1.0, self.hun + dt_ms / (st.hunger_rise_s * 1000.0))
         if st.fear_tau_s > 0:
             self.fear *= math.exp(-dt_ms / (st.fear_tau_s * 1000.0))
@@ -203,7 +226,8 @@ class Brain:
             return []                                    # duplicate or late
         if msg["e"] == "escape":
             self.hab = float(msg["hab"])
-            self.fear = min(1.0, self.fear + self.cfg.states.fear_jump * float(msg["resp"]))
+            if "fear" not in self.lesions:
+                self.fear = min(1.0, self.fear + self.cfg.states.fear_jump * float(msg["resp"]))
             self.counters["escapes"] += 1
         return []
 
@@ -306,7 +330,8 @@ class Brain:
     def _state(self) -> Out:
         return self._out("brain/state", hun=round(self.hun, 2), fear=round(self.fear, 2),
                          hab=round(self.hab, 2), slp=self.asleep,
-                         dec=self.dec, why=list(self.why[:3]), spk=self.ctrl.spikes(), les=[], pref=self.ctrl.pref(),
+                         dec=self.dec, why=list(self.why[:3]), spk=self.ctrl.spikes(), les=sorted(self.lesions),
+                         pref=self.ctrl.pref(),
                          rs=self.last_rs, ack=self.ack)
 
     # ------------------------------------------------------------------ sleep requests
@@ -371,13 +396,15 @@ class Brain:
                 self._reset_internal(msg["what"])
                 ok = True
             elif c == "state":
+                if ("hun" in msg and "hun" in self.lesions) or ("fear" in msg and "fear" in self.lesions):
+                    raise ValueError("that state is lesioned")
                 if "hun" in msg:
                     self.hun = min(max(float(msg["hun"]), 0.0), 1.0)
                 if "fear" in msg:
                     self.fear = min(max(float(msg["fear"]), 0.0), 1.0)
                 ok = True
             elif c == "lesion":
-                log.info("lesion %s: not supported until Phase 5", msg["tgt"])
+                ok = self.set_lesion(msg["tgt"], msg["off"])
         except (KeyError, TypeError, ValueError) as e:
             log.warning("brain/control %s rejected: %s", c, e)
         log.info("brain/control %s from %s: %s", c, msg["src"], "ok" if ok else "failed")

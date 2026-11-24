@@ -5,7 +5,7 @@ from flybot_brain import __main__ as cli
 
 
 def args(**kw):
-    base = dict(config=None, controller=None, reset_on_reboot=False, seed=None, no_persistence=False)
+    base = dict(config=None, controller=None, reset_on_reboot=False, seed=None, no_persistence=False, lesion=None)
     return argparse.Namespace(**{**base, **kw})
 
 

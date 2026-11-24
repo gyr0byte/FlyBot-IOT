@@ -511,6 +511,76 @@ Paired per animal, sleep minus awake (exact sign test):
   robot went 15 s without a repeated `cmd/sleep` and woke itself (the contract's safety timeout).
   This happened inside the unmeasured rest phase. One training trial had 2 timeouts (host load).
 
+## Lesions and explanations (Phase 5, step 5.10)
+
+**Lesion switches** (`brain/control` `lesion`, contract §3.12; or `--lesion X` at start for batches):
+
+| Target | Effect |
+|---|---|
+| `rcpt` | receptor groups silenced (no odour reaches the brain) |
+| `ln` | antennal-lobe local (cross-inhibition) neurons silenced |
+| `mb` | Kenyon cells silenced (no mushroom body output, no learning) |
+| `apl` | the global inhibitory neuron silenced (dense Kenyon cell code) |
+| `learn` | plasticity off; everything else runs |
+| `hun`, `fear` | that state held at 0 (and `brain/control` `state` for it refused) |
+| `hab` | refused (`ack.ok: false`): habituation runs on the robot |
+
+- Circuit lesions silence every group tagged with that `lesion_target` in `groups.csv`: its neurons
+  never spike. The random draws stay the same, so a brain with a lesion switched on and off again
+  behaves bit for bit like one that was never lesioned.
+- Active lesions are listed in `brain/state.les`. The baseline controller has no circuit, so only
+  `hun` and `fear` apply to it.
+
+**Explanations.** `brain/state.why` lists the main contributors to each decision, strongest first
+(at most 3), from these names: `odour_l` / `odour_r` / `odour` (which side the odour pulls to),
+`hunger`, `fear`, `learned_avoid` / `learned_approach`, `obstacle`, `no_odour`, `at_source`, and
+`dark` / `user` / `stale` from the core. Each has a score from 0 to 1:
+- odour side: PN contrast × confidence;
+- fear and hunger: their share of the change in drive (at full strength each moves the valence by
+  about 0.25, so the drive by about 0.5);
+- learned_*: the rest of the drive change, beyond what fear, hunger and untrained noise (0.3)
+  explain;
+- obstacle: how much the motor layer slows down.
+
+This is an attribution rule, not a counterfactual simulation; `tests/test_lesions.py` checks that
+it names the right causes in scripted situations (odour side, fear, hunger, learned avoidance,
+obstacle, no odour). The logger (Phase 8) will store it with every `brain/state`.
+
+### Lesion experiment (E4)
+
+`sim/tools/lesion_experiment.py`.
+- **Seeking:** the neural brain intact, with the mushroom body lesioned and with the receptors
+  lesioned, 50 independent trials each on `default` (base seed 1, per-trial seeds, batch lockstep
+  wait 2 s).
+- **Learning:** 10 punish-lit animals with the mushroom body lesioned, on the 5.6 protocol
+  (hunger held at 0, automatic sleep off).
+
+| lesion | reached (95% CI) | median time to source | collisions per trial |
+|---|---|---|---|
+| intact | 43/50 = 86% (74%–93%) | 22.1 s | 0.18 |
+| mb | 39/50 = 78% (65%–87%) | 19.7 s | 0.14 |
+| rcpt | 12/50 = 24% (14%–37%) | 25.8 s | 0.48 |
+
+| phase | lit / dark / timeout per animal | PI | pref.lt | pref.odr | w KC→ap | w KC→av |
+|---|---|---|---|---|---|---|
+| pre | 4.5 / 3.3 / 0.2 | +0.15 | – | – | 1.000 | 1.000 |
+| train | 13.4 / 1.2 / 0.4 | +0.84 | – | – | 1.000 | 1.000 |
+| post | 3.8 / 4.0 / 0.2 | -0.02 | – | – | 1.000 | 1.000 |
+
+**Reading it:**
+- **Mushroom body off: seeking intact.** 78% reached against 86% intact; the 95% intervals overlap
+  (65–87% vs 74–93%), and the median time is similar (19.7 vs 22.1 s). Steering comes from the
+  antennal lobe, which the lesion does not touch.
+- **Receptors off: only wandering.** 24% of trials still reached the source, by chance while
+  wandering (the designed motor layer), against 86% with odour; the robot no longer steers.
+- **Mushroom body off: no learning.** Every animal received 12 to 15 punishments, yet the KC → output
+  weights stayed exactly 1.000 and, with the output neurons silent, there was no valence at all
+  (`pref` stays empty). Intact animals on the same protocol depress the approach weights (5.6;
+  the final regression repeats that comparison on this code). The post-test preference moved
+  from +0.15 to −0.02 with nothing learned: pre- and post-tests use different trial seeds, the same
+  drift as in the 5.6 control animals.
+- No lockstep timeouts in any of the 460 trials (150 seeking, 310 learning).
+
 ## Circuit file format (version 1)
 
 Circuits are **data, not code** (plan, Phase 5 design rule). The network engine

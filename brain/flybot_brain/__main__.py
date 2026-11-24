@@ -41,6 +41,10 @@ def build(args) -> tuple[Brain, BrainLink]:
     brain = Brain(cfg, contract, Snapshots(cfg.persistence.path()))
     if cfg.persistence.load_on_start and brain.load("latest"):
         log.info("loaded snapshot 'latest'")
+    for target in args.lesion or []:
+        if not brain.set_lesion(target, True):
+            raise SystemExit(f"lesion {target!r} is not available with controller {cfg.controller}")
+        log.warning("started with lesion %s", target)
     return brain, BrainLink(settings, contract, brain)
 
 
@@ -52,6 +56,8 @@ def main(argv=None) -> int:
     ap.add_argument("--reset-on-reboot", action="store_true",
                     help="reset internal state whenever the robot reboots (independent trials)")
     ap.add_argument("--seed", type=int, help="override the config's random seed")
+    ap.add_argument("--lesion", action="append", choices=["rcpt", "ln", "mb", "apl", "learn", "hun", "fear"],
+                    help="start with this group / function switched off (repeatable; e.g. lesion batches)")
     ap.add_argument("--no-persistence", action="store_true",
                     help="neither load nor save snapshot 'latest' (a fresh, naive brain: one experiment animal)")
     ap.add_argument("-v", "--verbose", action="store_true")

@@ -32,8 +32,8 @@ def test_factory_builds_the_neural_controller_on_the_designed_circuit():
 def test_turns_toward_the_stronger_side():
     left = run(ctl(), 0.30, 0.12)
     right = run(ctl(), 0.12, 0.30)
-    assert left.dec == "seek" and left.r > left.l and left.why[0] == "pn_left"
-    assert right.dec == "seek" and right.l > right.r and right.why[0] == "pn_right"
+    assert left.dec == "seek" and left.r > left.l and left.why[0] == "odour_l"
+    assert right.dec == "seek" and right.l > right.r and right.why[0] == "odour_r"
 
 
 def test_equal_odour_goes_roughly_straight():
