@@ -100,3 +100,7 @@ in `firmware/include/secrets.h` (git-ignored).
 - **Single forward ultrasonic sensor.** The robot cannot see obstacles beside it, and turning
   makes the cone sweep across walls, so the looming detector is suppressed while turning
   (`edge_config.loom_max_turn`). A rare false escape can still happen on a wall corner.
+- **More collisions with the neural controller on `obstacles`.** It averages 2.17 collisions per
+  trial against the baseline's 1.39 (3 base seeds × 50 trials each), although both use the same
+  designed motor layer (`controllers/motor.py`). The difference must come from how each steers
+  toward the odour around the obstacle, not from the avoidance rules themselves. Investigate later.

@@ -24,6 +24,15 @@ with a clear message saying what was done and why.
 Use conventional-commit prefixes (`docs:`, `chore:`, `feat:`, `fix:`).
 Never push unless asked.
 
+## 3. Propose first, then wait for approval
+
+Never change the message contract, an experiment design, or an agreed plan without proposing the
+change first and waiting for approval, even when the change seems obviously right. This covers
+contract revisions and schemas, how an experiment is run or analysed (conditions, sample sizes,
+stopping rules, measures, the change being tested), and steps or decisions already agreed. When
+such a change looks necessary mid-task, stop, explain what and why, and continue only after an
+explicit yes.
+
 ## Project pointers
 
 - Context: `docs/FlyBot_Project_Proposal.md`, `docs/FlyBot_Software_Implementation_Plan.md`.
