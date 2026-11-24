@@ -49,6 +49,9 @@ class Controller:
     def step(self, inp: Inputs) -> Decision:
         raise NotImplementedError
 
+    def sleep_tick(self, dt_ms: int) -> None:
+        """Called instead of step() while the brain is asleep (inputs ignored): consolidation (5.9)."""
+
     def on_reward(self, r: int, t_ms: int) -> None:
         """A reward (+1) or punishment (-1) message arrived (contract 3.8)."""
 

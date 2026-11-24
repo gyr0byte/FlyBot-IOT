@@ -88,6 +88,25 @@ class Monitor:
         with self.lock:
             self.state = self.weights = None
 
+    def wait_caught_up(self, sim, timeout_s: float = 120.0) -> None:
+        """Block until the brain has processed the trial's last sensors message: the newest brain/state
+        has rs within 4 of it (states come every 200 ms of robot time) and not above it (a stray state
+        from an earlier boot). Lockstep paces the robot with the brain only while commands are
+        expected; while the robot sleeps it runs ahead (contract 7.1 (5)), so without this the next
+        trial would start while the brain is still working through the old one."""
+        target = sim.last_sensors_seq
+        if target is None:
+            return
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            with self.lock:
+                rs = None if self.state is None else self.state.get("rs")
+            if rs is not None and target - 4 <= rs <= target:
+                return
+            time.sleep(0.05)
+        raise RuntimeError(f"brain did not catch up within {timeout_s:.0f} s (last sensors seq {target}, "
+                           f"newest brain/state rs {rs})")
+
     def snapshot(self) -> tuple[dict, dict | None]:
         with self.lock:
             return dict((self.state or {}).get("pref") or {}), self.weights
@@ -129,6 +148,9 @@ def experiment_brain_config(out: Path, circuit: str | None = None) -> Path:
     import yaml
     cfg = yaml.safe_load((REPO / "brain" / "config" / "brain.yaml").read_text(encoding="utf-8"))
     cfg.setdefault("timing", {})["weights_every_ms"] = 250
+    cfg.setdefault("sleep", {})["auto"] = False      # the dark arena must not put animals to sleep (5.9)
+    st = cfg.setdefault("states", {})                # hunger held at 0, as in the 5.6 design (5.7 added
+    st["hunger_start"], st["hunger_rise_s"] = 0.0, 0  # rising hunger; approved to hold it for this design)
     if circuit:
         cfg.setdefault("neural", {})["circuit"] = str(Path(circuit).resolve())
     p = out / "brain-experiment.yaml"
@@ -177,7 +199,8 @@ def run_animal(base, condition: str, k: int, out: Path, monitor: Monitor, config
                  w_ap, w_av)
 
     try:
-        run_experiment(sc, "neural", folder / f"trials-a{k:02d}.csv", open_link, on_phase_end)
+        run_experiment(sc, "neural", folder / f"trials-a{k:02d}.csv", open_link, on_phase_end,
+                       catch_up=monitor.wait_caught_up)
     finally:
         stop_brain(brain)
     return records

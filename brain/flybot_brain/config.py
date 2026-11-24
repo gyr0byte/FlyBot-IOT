@@ -76,6 +76,17 @@ class States:
 
 
 @dataclass
+class Sleep:
+    """Sleep and wake from the light sensor (plan step 5.9), and consolidation during sleep."""
+    auto: bool = True               # sleep when it stays dark (off: only brain/sleep requests)
+    dark_below: float = 0.10        # light below this ...
+    dark_for_s: float = 20.0        # ... for this long (robot time) -> sleep (cmd/sleep why "dark")
+    light_above: float = 0.25       # light above this ...
+    light_for_s: float = 2.0        # ... for this long -> wake (why "light"); only after a "dark" sleep
+    consolidate_tau_s: float = 60.0  # while asleep, labile depression becomes stable with this tau (0 = off)
+
+
+@dataclass
 class Neural:
     """Neural controller: which circuit, and how projection-neuron activity is read out."""
     circuit: str = "brain/circuits/designed"   # circuit folder (format v1), relative to the repo root
@@ -116,6 +127,7 @@ class BrainConfig:
     motor: Motor = field(default_factory=Motor)
     neural: Neural = field(default_factory=Neural)
     states: States = field(default_factory=States)
+    sleep: Sleep = field(default_factory=Sleep)
 
     def __post_init__(self):
         if self.controller not in ("baseline", "neural"):
@@ -153,7 +165,7 @@ def set_param(cfg: BrainConfig, key: str, value: Any) -> None:
         cfg.controller = value
         return
     section, _, name = key.partition(".")
-    if section not in ("baseline", "motor", "neural", "timing", "experiment", "states") or not name:
+    if section not in ("baseline", "motor", "neural", "timing", "experiment", "states", "sleep") or not name:
         raise KeyError(key)
     obj = getattr(cfg, section)
     hints = typing.get_type_hints(type(obj))

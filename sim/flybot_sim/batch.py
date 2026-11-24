@@ -76,7 +76,8 @@ def run_trials(sc: Scenario, trials: int, controller: str, realtime: bool, out: 
 
 def run_experiment(sc: Scenario, controller: str, out: Path, link_factory: Callable[[Contract], object],
                    on_phase_end: Callable[[str, list[dict]], None] | None = None,
-                   wait_ms: int = BATCH_WAIT_MS) -> list[dict]:
+                   wait_ms: int = BATCH_WAIT_MS,
+                   catch_up: Callable[[Simulation], None] | None = None) -> list[dict]:
     """Run a scenario's experiment phases in lockstep, one animal (the brain keeps what it learns:
     run the brain WITHOUT --reset-on-reboot). Seeds continue across phases (scenario seed + trial)."""
     if sc.experiment is None:
@@ -99,10 +100,15 @@ def run_experiment(sc: Scenario, controller: str, out: Path, link_factory: Calla
                 link = link_factory(contract)
                 sim = Simulation(sc, link, contract, seed=seed, lockstep=True, start=starts[i % len(starts)],
                                  rewards=ph.rewards, reward_delay_s=sc.experiment.reward_delay_s,
-                                 hold_after_reward_s=sc.experiment.hold_after_reward_s)
+                                 hold_after_reward_s=sc.experiment.hold_after_reward_s,
+                                 ambient=ph.ambient, odour=ph.odour,
+                                 dawn=(ph.duration_s - ph.dawn_s, ph.dawn_ambient) if ph.dawn_s else None)
+                duration = ph.duration_s if ph.kind == "rest" else sc.duration_s
                 wall0 = time.perf_counter()
                 try:
-                    timeouts = run_lockstep(sim, trial_done(sc.duration_s), wait_ms=wait_ms).timeouts
+                    timeouts = run_lockstep(sim, trial_done(duration), wait_ms=wait_ms).timeouts
+                    if catch_up is not None:
+                        catch_up(sim)       # while the robot slept, lockstep did not wait: let the brain catch up
                 finally:
                     link.stop()
                 r, sp = sim.results(), sim.start

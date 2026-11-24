@@ -439,6 +439,78 @@ animals this is suggestive, not established (p = 0.11; interaction p = 0.18); th
 extended. The weaker-than-planned state coupling (valence −0.25 instead of −0.5 at full fear) may
 limit the effect.
 
+## Sleep and wake (Phase 5, step 5.9)
+
+- **Falling asleep:** light below 0.10 for 20 s of robot time puts the brain to sleep. It sends
+  `cmd/sleep` (`why: dark`, repeated every 5 s), sends no `cmd/motor`, and ignores its inputs.
+- **Waking:** light above 0.25 for 2 s wakes it (`cmd/sleep s:false, why: light`). A passing shadow
+  cannot trigger sleep (it needs 20 s), and the band 0.10–0.25 is hysteresis: a dim arena keeps an
+  awake brain awake and a sleeping brain asleep.
+- **User requests** (`brain/sleep`) still work. Light does not wake a user-requested sleep, and after
+  a user wake the brain stays awake in the dark until it has seen light again.
+- `sleep.auto: false` switches automatic sleep off. The 5.6 learning experiments use it: their dark
+  arena (0.05) would otherwise put the animals to sleep mid-trial.
+
+**Consolidation: the two-part synapse.** Each plastic synapse's depression (initial − current
+weight) has a **labile** and a **stable** part.
+- Learning adds labile depression.
+- Forgetting (`neural.forget_tau_s`, off by default) removes only the labile part.
+- While asleep, labile depression moves into the stable part with τ = 60 s (`sleep.consolidate_tau_s`).
+  The weights themselves do not change; only how much of their depression forgetting can undo.
+- This replaces the plan's wording ("strengthen the strongest, normalise the rest") with a mechanism
+  that the retention test below can check (approved).
+- **No change without sleep, checked:** with no sleep the stable part stays 0. The same training
+  sequence on the code before and after this change gave bit-identical weights, valence and drive,
+  with forgetting off and with it on.
+
+Snapshots save both parts; older snapshots without the stable part still load (stable = 0).
+
+### Sleep and memory experiment (E3)
+
+`sim/tools/sleep_experiment.py`, scenario `sim/scenarios/sleep_learning.yaml`.
+- **Design:** training as in 5.6 (punish the lit source, 15 trials started near it), then 10 min of
+  robot time without odour, **dark** (the brain falls asleep after 20 s) or **lit** (awake), each
+  ending with 10 s of light (dawn), then a post-test of 8 trials. The arena is dim (0.15), not dark,
+  so the animals stay awake in training and tests.
+- 10 animals, both conditions per animal with the same seeds, mirrored arena for odd animals.
+- Forgetting was on (τ 5 min) and consolidation τ was 60 s, both fixed in advance; hunger was held
+  at 0. **The outcome largely follows from these time constants: this demonstrates the mechanism in
+  the closed loop. It is not a discovery.**
+- **Method fixes before the run:** the first attempt failed because, while the robot slept, lockstep
+  did not wait for the brain and the brain fell hundreds of messages behind, so it was still
+  "asleep" during the post-test. Now the tool waits after every trial until the brain has processed
+  its last sensors message, E3 publishes `brain/weights` every 2 s (not 250 ms), and the brain
+  reports a backlog in `brain/status.lag` (contract revision 9).
+
+| Condition | Phase | Lit / dark / timeout per animal | PI | Valence, lit cue | w KC→ap | Brain slept |
+|---|---|---|---|---|---|---|
+| sleep | train | 13.5 / 1.3 / 0.2 | +0.82 | −0.55 | 0.940 | 0/10 |
+| sleep | rest | – | – | −0.55 | **0.952** | 10/10 |
+| sleep | post | 3.9 / 3.3 / 0.8 | +0.12 | **−0.30** | 0.952 | 0/10 |
+| awake | train | 13.6 / 1.3 / 0.1 | +0.83 | −0.52 | 0.939 | 0/10 |
+| awake | rest | – | – | −0.19 | **0.992** | 0/10 |
+| awake | post | 4.2 / 3.6 / 0.2 | +0.07 | **−0.03** | 0.995 | 0/10 |
+
+Paired per animal, sleep minus awake (exact sign test):
+
+| Measure | Mean | Up / down / tie | p |
+|---|---|---|---|
+| w KC→ap after the rest (lower = more retained) | −0.039 | 0 / 10 / 0 | 0.002 |
+| post-test valence for the lit cue | −0.27 | 0 / 10 / 0 | 0.002 |
+| post-test PI | +0.05 | 4 / 3 / 3 | 1.0 |
+| post-test lit approaches | −0.3 | 4 / 3 / 3 | 1.0 |
+
+**Reading it:**
+- **Consolidation works** in the weights and the learned valence, in every animal. After the awake
+  rest the learned depression was almost entirely forgotten (w 0.992, valence near 0). After sleep
+  most of it remained (w 0.952, valence −0.30).
+- **It did not change behaviour.** Neither group avoided the lit source in the post-test. With
+  forgetting on during training, training reached only valence −0.55 (5.6: −0.86), and the retained
+  −0.30 leaves the drive positive (1 + 2 × (−0.30) = 0.4): the robot still approaches, more slowly.
+- Every sleep-condition rest had exactly 3 lockstep timeouts. While the brain caught up, the sleeping
+  robot went 15 s without a repeated `cmd/sleep` and woke itself (the contract's safety timeout).
+  This happened inside the unmeasured rest phase. One training trial had 2 timeouts (host load).
+
 ## Circuit file format (version 1)
 
 Circuits are **data, not code** (plan, Phase 5 design rule). The network engine

@@ -35,6 +35,7 @@ class NeuralController(Controller):
 
     def __init__(self, cfg: BrainConfig):
         self.p = cfg.neural
+        self.sleep_p = cfg.sleep
         self.motor_p = cfg.motor
         self.seed = cfg.seed
         circuit = load_circuit(self.p.circuit_path())
@@ -95,9 +96,18 @@ class NeuralController(Controller):
             out["lt"] = round(max(-1.0, min(1.0, self.pref_lt)), 2)
         return out
 
+    def sleep_tick(self, dt_ms: int) -> None:
+        """Asleep: no network input or output; labile depression is consolidated and keeps fading."""
+        if dt_ms <= 0:
+            return
+        self.net.consolidate(dt_ms, self.sleep_p.consolidate_tau_s * 1000.0)
+        if self.p.forget_tau_s > 0:
+            self.net.relax(dt_ms, self.p.forget_tau_s * 1000.0)
+
     def state_dict(self) -> dict:
         return {"feeding": self.feeding, "circuit": self.circuit.name, "n_plastic": int(self.net.p_raw.size),
                 "plastic": [round(float(w), 6) for w in self.net.plastic_weights()],
+                "stable": [round(float(w), 6) for w in self.net.stable_depression()],
                 "pref_lt": self.pref_lt, "pref_odr": self.pref_odr}
 
     def load_state(self, state: dict) -> None:
@@ -107,7 +117,7 @@ class NeuralController(Controller):
                 raise ValueError(f"snapshot was saved with circuit {state.get('circuit')!r} "
                                  f"({state.get('n_plastic')} plastic synapses), not {self.circuit.name!r} "
                                  f"({self.net.p_raw.size})")
-            self.net.set_plastic_weights(state["plastic"])
+            self.net.set_plastic_weights(state["plastic"], state.get("stable"))   # older snapshots: no stable part
         self.pref_lt, self.pref_odr = state.get("pref_lt"), state.get("pref_odr")
 
     # ------------------------------------------------------------------ brain/weights (contract 3.11)

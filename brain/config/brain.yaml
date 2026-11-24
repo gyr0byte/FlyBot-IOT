@@ -71,3 +71,13 @@ states:
   hunger_start: 0.0         # at start-up and after a state reset (experiments set fed / hungry here)
   fear_jump: 0.5            # each looming escape adds 0.5 x its strength (events escape.resp)
   fear_tau_s: 20            # fear decays with this time constant
+
+# Sleep and wake (5.9): sustained darkness puts the brain to sleep (cmd/sleep, inputs ignored);
+# while asleep, learned depression is consolidated (forgetting can no longer undo it).
+sleep:
+  auto: true                # false: only brain/sleep requests (the 5.6 learning experiments use false)
+  dark_below: 0.10          # light below this for dark_for_s -> sleep (why "dark")
+  dark_for_s: 20
+  light_above: 0.25         # light above this for light_for_s -> wake (why "light"); a passing shadow
+  light_for_s: 2            # cannot trigger sleep (20 s) and the gap 0.10-0.25 is the hysteresis
+  consolidate_tau_s: 60     # labile -> stable while asleep (0 = no consolidation)

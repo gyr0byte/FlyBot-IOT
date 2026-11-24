@@ -58,6 +58,8 @@ class Brain:
         self.asleep = False
         self.sleep_why = "user"
         self.next_sleep_repeat = 0
+        self.dark_ms = self.light_ms = 0                 # auto sleep (5.9): time spent dark / light
+        self.sleep_armed = True                          # after a user wake: light must be seen first
         self.hun = cfg.states.hunger_start      # internal states (5.7): robot-time dynamics here,
         self.fear = 0.0                         # their effect on the network is circuit data
 
@@ -80,7 +82,7 @@ class Brain:
         self.next_status_wall = 0.0
         self.tick_log: deque = deque()          # (wall, compute ms)
         self.counters = {"ticks": 0, "commands": 0, "dropped": 0, "reboots": 0, "gaps": 0, "resets": 0,
-                         "invalid": 0, "rewards": 0, "weights_published": 0, "escapes": 0}
+                         "invalid": 0, "rewards": 0, "weights_published": 0, "escapes": 0, "sleeps": 0}
 
     # ------------------------------------------------------------------ helpers
 
@@ -154,7 +156,9 @@ class Brain:
             self.sens = "ok"
             self.status_dirty = True
         self.last_rs = msg["seq"]
-        outs: list[Out] = []
+        outs: list[Out] = self._light_sleep(msg["lt"], self.clock.step, t)
+        if self.asleep:
+            self.ctrl.sleep_tick(self.clock.step)           # consolidation (5.9)
 
         if msg["ol"] is None or msg["or"] is None:
             dec, why = "warmup", ["odour_warmup"]            # robot holds still in boot (section 5)
@@ -307,6 +311,30 @@ class Brain:
 
     # ------------------------------------------------------------------ sleep requests
 
+    def _light_sleep(self, lt: float | None, dt_ms: int, t: int) -> list[Out]:
+        """Sleep after sustained darkness, wake after sustained light (5.9), with hysteresis."""
+        sc = self.cfg.sleep
+        if not sc.auto or lt is None:
+            self.dark_ms = self.light_ms = 0
+            return []
+        if lt > sc.light_above:
+            self.sleep_armed = True
+        if not self.asleep:
+            self.dark_ms = self.dark_ms + dt_ms if (lt < sc.dark_below and self.sleep_armed) else 0
+            if self.dark_ms >= sc.dark_for_s * 1000:
+                self.asleep, self.sleep_why, self.dark_ms = True, "dark", 0
+                self.next_sleep_repeat = t + self.cfg.timing.sleep_repeat_ms
+                self.counters["sleeps"] += 1
+                log.info("dark for %.0f s: sleep", sc.dark_for_s)
+                return [self._out("cmd/sleep", s=True, why="dark")]
+        elif self.sleep_why == "dark":
+            self.light_ms = self.light_ms + dt_ms if lt > sc.light_above else 0
+            if self.light_ms >= sc.light_for_s * 1000:
+                self.asleep, self.light_ms = False, 0
+                log.info("light for %.0f s: wake", sc.light_for_s)
+                return [self._out("cmd/sleep", s=False, why="light")]
+        return []
+
     def _on_sleep_request(self, msg: dict) -> list[Out]:
         if not self.streams.accept(("brain/sleep", msg["src"]), msg["seq"], msg["up"], self._now_ms()):
             return []
@@ -316,6 +344,8 @@ class Brain:
             self.next_sleep_repeat = self.clock.ms + self.cfg.timing.sleep_repeat_ms
         else:
             self.asleep = False
+            self.sleep_armed = False                     # stay awake until the light has been seen
+            self.dark_ms = 0
         log.info("sleep request from %s: %s", msg["src"], "sleep" if msg["s"] else "wake")
         return [self._out("cmd/sleep", s=msg["s"], why="user")]
 

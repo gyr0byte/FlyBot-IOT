@@ -129,11 +129,17 @@ class RelStart:
 @dataclass
 class Phase:
     name: str
-    trials: int
+    trials: int = 1
     rewards: dict[str, int] = field(default_factory=dict)     # source label -> +1 reward / -1 punishment
     start_positions: list[StartPos] = field(default_factory=list)   # absolute (default: the scenario's)
     relative_to: str | None = None                             # or: starts relative to this source label
     relative_starts: list[RelStart] = field(default_factory=list)
+    kind: str = "trials"               # trials | rest (one period of duration_s, e.g. sleep vs awake)
+    duration_s: float | None = None    # rest: how long
+    ambient: float | None = None       # light level everywhere for this phase (overrides day/night, lamps)
+    odour: bool = True                 # false: no odour sources during this phase
+    dawn_s: float = 0.0                # rest: the last dawn_s seconds at light dawn_ambient (wakes sleepers)
+    dawn_ambient: float = 0.8
 
 
 @dataclass
@@ -299,6 +305,17 @@ def validate(sc: Scenario, where: str) -> None:
         raise ValueError(f"{where}: experiment needs at least one phase")
     for ph in sc.experiment.phases:
         w = f"{where}: phase {ph.name!r}"
+        if ph.kind not in ("trials", "rest"):
+            raise ValueError(f"{w}: kind must be trials or rest")
+        if ph.kind == "rest":
+            if not ph.duration_s or ph.duration_s <= 0 or ph.trials != 1 or ph.rewards:
+                raise ValueError(f"{w}: a rest phase needs duration_s > 0, one trial and no rewards")
+            if not 0.0 <= ph.dawn_s < ph.duration_s:
+                raise ValueError(f"{w}: dawn_s must be 0 or shorter than duration_s")
+        elif ph.duration_s is not None or ph.dawn_s:
+            raise ValueError(f"{w}: duration_s and dawn_s are for rest phases")
+        if ph.ambient is not None and not 0.0 <= ph.ambient <= 1.0:
+            raise ValueError(f"{w}: ambient must be 0..1")
         if ph.trials < 1:
             raise ValueError(f"{w}: trials must be >= 1")
         for label, r in ph.rewards.items():

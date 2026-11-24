@@ -103,10 +103,16 @@ Bundled: `default`, `obstacles`, `two_sources` (strong target plus a weak decoy)
   `relative_starts: [{dx, dy, heading_deg}]`. They are written for a source on the left and
   mirrored when the source is on the right. `check_training_starts()` verifies that every such
   start is nearer its own source than any other.
+- **Rest phases** (step 5.9): `kind: rest` with `duration_s` is one period without a goal. `ambient`
+  fixes the light level everywhere (overriding day/night and lamps), `odour: false` removes the
+  sources, and `dawn_s` / `dawn_ambient` switch the light on for the last seconds (so a sleeping
+  brain wakes before the next phase).
 
 `scenarios/learning.yaml` is a dark arena with two equal odour sources and a lamp over the left
 one. It runs pre-test 8 trials from the midline, training 15 trials started near the lit source,
-and post-test 8 trials.
+and post-test 8 trials. `scenarios/sleep_learning.yaml` is the same arena, dim (0.15) instead of
+dark: training, a 10-minute rest (dark or lit, ending with 10 s of dawn), then a post-test
+(`tools/sleep_experiment.py`).
 
 `tools/learning_experiment.py` runs whole experiments: conditions × animals, a fresh brain process
 per animal, and every odd animal in the mirrored arena. See [brain/README.md](../brain/README.md#learning-phase-5-steps-55-56)

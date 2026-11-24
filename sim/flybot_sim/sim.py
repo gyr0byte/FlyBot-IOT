@@ -51,12 +51,17 @@ class Simulation:
     def __init__(self, sc: Scenario, link, contract: Contract | None = None, start_index: int = 0,
                  seed: int | None = None, lockstep: bool = False, start: StartPos | None = None,
                  rewards: dict[str, int] | None = None, reward_delay_s: float = 0.0,
-                 hold_after_reward_s: float = 2.0):
+                 hold_after_reward_s: float = 2.0, ambient: float | None = None, odour: bool = True,
+                 dawn: tuple[float, float] | None = None):
         self.sc = sc
         self.seed = sc.seed if seed is None else seed
         self.lockstep = lockstep
         rngs = np.random.default_rng(self.seed).spawn(8)
         self.world = World(sc, rngs[0])
+        self.world.ambient_override = ambient
+        self.dawn = dawn                               # (from trial time s, light level): rest phases
+        if not odour:
+            self.world.sources = []                    # rest phases: nothing to smell or reach
         self.start_index = start_index % len(sc.start_positions)
         sp = start if start is not None else sc.start_positions[self.start_index]
         self.start = sp
@@ -65,6 +70,7 @@ class Simulation:
         self.hold_ms = int(round(hold_after_reward_s * 1000))
         self.pending_reward: tuple[int, int] | None = None   # (r, publish at robot time)
         self.threat_next: dict[int, int] = {}          # threat index -> next launch (robot ms), while inside
+        self.last_sensors_seq: int | None = None       # experiments wait until the brain has used it
         self.robot = Robot(sc.robot, Pose(sp.x, sp.y, math.radians(sp.heading_deg)), rngs[1])
         self.odour = [OdourSensor(sc.odour, +1, rngs[2]), OdourSensor(sc.odour, -1, rngs[3])]
         self.ultrasonic = Ultrasonic(sc.ultrasonic, rngs[4])
@@ -117,7 +123,7 @@ class Simulation:
                 and self.edge.state in (CLOUD, FALLBACK, ESCAPE))
 
     def target(self):
-        return self.world.sources[0]
+        return self.world.sources[0] if self.world.sources else None
 
     # ------------------------------------------------------------------ inbound
 
@@ -203,6 +209,8 @@ class Simulation:
         if t >= self.next_sensors:
             self.next_sensors += self.sensors_period
             sensors_seq = self._sample_and_publish_sensors(t)
+            if sensors_seq is not None:
+                self.last_sensors_seq = sensors_seq
 
         was_boot = self.edge.state == BOOT
         l, r = self.edge.update(t)
@@ -217,6 +225,8 @@ class Simulation:
         if t % 50 == 0:
             self.trail.append((self.robot.pose.x, self.robot.pose.y))
         self._check_reached(t)
+        if self.dawn is not None and self.booted() and self.trial_time_s() >= self.dawn[0]:
+            self.world.ambient_override = self.dawn[1]
         if self.pending_reward is not None and t >= self.pending_reward[1]:
             r = self.pending_reward[0]
             self.pending_reward = None
@@ -292,6 +302,8 @@ class Simulation:
     def _check_reached(self, t: int) -> None:
         if self.m.reached or not self.booted():
             return
+        if not self.world.sources:
+            return
         candidates = self.world.sources if self.sc.goal == "any" else [self.target()]
         for s in candidates:
             if math.hypot(self.robot.pose.x - s["x"], self.robot.pose.y - s["y"]) <= self.sc.success_radius_m:
@@ -326,9 +338,10 @@ class Simulation:
             return
         p = self.robot.pose
         s = self.target()
-        d = math.hypot(p.x - s["x"], p.y - s["y"])
-        if self.m.min_source_dist_m is None or d < self.m.min_source_dist_m:
-            self.m.min_source_dist_m = d
+        if s is not None:
+            d = math.hypot(p.x - s["x"], p.y - s["y"])
+            if self.m.min_source_dist_m is None or d < self.m.min_source_dist_m:
+                self.m.min_source_dist_m = d
         for i, th in enumerate(self.sc.threats):
             inside = math.hypot(p.x - th.x, p.y - th.y) <= th.radius_m
             due = self.threat_next.get(i)

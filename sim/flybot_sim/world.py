@@ -38,6 +38,7 @@ class World:
         self.sources = [dict(x=s.x, y=s.y, strength=s.strength, spread=s.spread_m, label=s.label)
                         for s in sc.sources]
         self.day = sc.light.day
+        self.ambient_override: float | None = None   # a phase's fixed light level (rest phases)
         self.looming: list[LoomingObject] = []
         # Patchy plume: a few random travelling waves; fixed by the scenario seed.
         p = sc.plume
@@ -69,6 +70,8 @@ class World:
 
     def light_level(self, x: float | None = None, y: float | None = None) -> float:
         """Ambient (day/night) light, raised by any lamp (light patch) covering (x, y)."""
+        if self.ambient_override is not None:
+            return self.ambient_override
         level = self.sc.light.day_level if self.day else self.sc.light.night_level
         if x is None:
             return level

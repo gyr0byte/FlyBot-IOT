@@ -132,6 +132,7 @@ class Network:
                                  "must use the same eligibility")
             self.elig_cap[pres], cap_set[pres] = cap, True
         self.p_raw0 = self.p_raw.copy()
+        self.p_stable = np.zeros(n_p)          # D1: consolidated (stable) part of each synapse's depression
         self._init_state_modulation()
         # Which plastic edges each modulator neuron gates.
         gates: dict[int, list[np.ndarray]] = {}
@@ -146,6 +147,11 @@ class Network:
         self.learning = True                                     # lesion "learn" switches this off (5.10)
         self.plastic_changes = 0
 
+    # Two-part synapse (step 5.9, D1): a weight's depression (initial - current) has a labile and a
+    # stable (consolidated) part. Learning adds labile depression; forgetting (relax) removes only the
+    # labile part; sleep (consolidate) moves labile into stable. With no sleep the stable part stays 0
+    # and everything behaves exactly as before (tests/test_sleep.py checks this bit for bit).
+
     def reset_weights(self) -> None:
         """Back to the circuit's initial plastic weights (brain/control reset "weights")."""
         self.set_plastic_weights(self.p_raw0)
@@ -153,20 +159,38 @@ class Network:
     def plastic_weights(self) -> np.ndarray:
         return self.p_raw.copy()
 
-    def set_plastic_weights(self, raw) -> None:
+    def stable_depression(self) -> np.ndarray:
+        return self.p_stable.copy()
+
+    def set_plastic_weights(self, raw, stable=None) -> None:
         raw = np.asarray(raw, dtype=np.float64)
         if raw.shape != self.p_raw.shape:
             raise ValueError(f"expected {self.p_raw.size} plastic weights, got {raw.size}")
         self.p_raw = np.clip(raw, self.p_wmin, self.p_wmax)
+        st = np.zeros_like(self.p_raw) if stable is None else np.asarray(stable, dtype=np.float64)
+        if st.shape != self.p_raw.shape:
+            raise ValueError(f"expected {self.p_raw.size} stable depressions, got {st.size}")
+        self.p_stable = np.clip(st, 0.0, np.maximum(self.p_raw0 - self.p_raw, 0.0))
         self.e_w[self.p_idx] = self.p_raw * self.p_factor
         self.plastic_changes += 1
 
     def relax(self, dt_ms: float, tau_ms: float) -> None:
-        """Forgetting: plastic weights drift back toward their initial values (time constant tau_ms)."""
+        """Forgetting: the labile part of each depression fades with time constant tau_ms (weights
+        drift back toward initial - stable)."""
         if tau_ms <= 0 or dt_ms <= 0 or self.p_raw.size == 0:
             return
-        self.p_raw += (self.p_raw0 - self.p_raw) * (1.0 - np.exp(-dt_ms / tau_ms))
+        target = self.p_raw0 - self.p_stable
+        self.p_raw += (target - self.p_raw) * (1.0 - np.exp(-dt_ms / tau_ms))
         self.e_w[self.p_idx] = self.p_raw * self.p_factor
+        self.plastic_changes += 1                 # weights changed: brain/weights must be republished
+
+    def consolidate(self, dt_ms: float, tau_ms: float) -> None:
+        """Sleep: move labile depression into the stable part with time constant tau_ms. Weights do
+        not change; only how much of their depression forgetting can undo."""
+        if tau_ms <= 0 or dt_ms <= 0 or self.p_raw.size == 0:
+            return
+        labile = np.maximum(self.p_raw0 - self.p_raw - self.p_stable, 0.0)
+        self.p_stable += labile * (1.0 - np.exp(-dt_ms / tau_ms))
 
     def _depress(self, modulators: np.ndarray) -> None:
         for m in modulators.tolist():

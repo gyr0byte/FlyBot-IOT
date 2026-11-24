@@ -1,0 +1,41 @@
+# Sleep and memory (plan step 5.9, design E3): train, rest, then test.
+# Like `learning`, but the arena is dim (0.15) rather than dark, so animals do not fall asleep during
+# training or tests (the brain sleeps below 0.10). The rest phase is 10 min of robot time without
+# odour: dark (the brain sleeps; consolidation) or lit (awake), set by sim/tools/sleep_experiment.py.
+# It ends with 10 s of light (dawn) in both conditions, so sleepers wake before the post-test.
+name: sleep_learning
+seed: 700
+duration_s: 60
+success_radius_m: 0.15
+goal: any
+
+light:
+  day: false
+  night_level: 0.15                # dim arena ...
+  patches:                         # ... with one lamp over the lit source
+    - {x: 0.55, y: 1.55, r: 0.40, level: 0.90}
+
+sources:
+  - {x: 0.55, y: 1.55, strength: 1.0, spread_m: 0.35, label: lit}
+  - {x: 1.45, y: 1.55, strength: 1.0, spread_m: 0.35, label: dark}
+
+start_positions:                   # tests: on the midline, equally far from both sources
+  - {x: 1.00, y: 0.30, heading_deg: 90}
+  - {x: 0.92, y: 0.25, heading_deg: 85}
+  - {x: 1.08, y: 0.25, heading_deg: 95}
+  - {x: 1.00, y: 0.45, heading_deg: 90}
+
+experiment:
+  hold_after_reward_s: 2.0
+  reward_delay_s: 0.0
+  phases:
+    - name: train
+      trials: 15
+      rewards: {lit: -1}           # punish the lit source
+      relative_to: lit
+      relative_starts:
+        - {dx: 0.00, dy: -0.60, heading_deg: 90}
+        - {dx: -0.20, dy: -0.55, heading_deg: 70}
+        - {dx: 0.20, dy: -0.55, heading_deg: 110}
+    - {name: rest, kind: rest, duration_s: 600, ambient: 0.0, odour: false, dawn_s: 10, dawn_ambient: 0.8}
+    - {name: post, trials: 8}

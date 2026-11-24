@@ -159,3 +159,41 @@ def test_goal_first_only_counts_the_first_source():
     sc.duration_s = 3.0
     sim, _ = run_until_done(sc, on(sc, "dark"))
     assert not sim.m.reached and sim.m.reached_label is None
+
+
+# ----------------------------------------------------------------------------- rest phases (5.9)
+
+def test_sleep_learning_scenario_has_a_rest_phase_with_dawn():
+    sc = load_scenario("sleep_learning")
+    rest = next(p for p in sc.experiment.phases if p.kind == "rest")
+    assert (rest.duration_s, rest.ambient, rest.odour, rest.dawn_s) == (600, 0.0, False, 10)
+    assert sc.light.night_level > 0.10                 # dim, not dark: no sleep in training / tests
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda p: setattr(p, "duration_s", None), "rest phase needs"),
+    (lambda p: p.rewards.update(lit=-1), "rest phase needs"),
+    (lambda p: setattr(p, "dawn_s", 600), "dawn_s"),
+    (lambda p: setattr(p, "ambient", 1.5), "ambient"),
+    (lambda p: setattr(p, "kind", "nap"), "kind"),
+])
+def test_invalid_rest_phases_are_rejected(change, message):
+    sc = load_scenario("sleep_learning")
+    change(next(p for p in sc.experiment.phases if p.name == "rest"))
+    with pytest.raises(ValueError, match=message):
+        validate(sc, "sleep_learning.yaml")
+
+
+def test_rest_phase_has_fixed_light_no_odour_and_a_dawn():
+    sc = load_scenario("sleep_learning")
+    sim = Simulation(sc, FakeLink(C), C, seed=1, start=StartPos(0.55, 1.4, 90), ambient=0.0, odour=False,
+                     dawn=(5.0, 0.8))
+    lt = []
+    while not sim.finished(8.0):
+        sim.step()
+        if sim.booted():
+            lt.append((sim.trial_time_s(), sim.world.light_level(sim.robot.pose.x, sim.robot.pose.y)))
+    assert all(v == 0.0 for t, v in lt if t < 4.9)     # under the lamp, but the phase is dark
+    assert all(v == 0.8 for t, v in lt if t >= 5.01)   # from the step after the switch
+    assert sim.world.odour(0.55, 1.55, 1.0) == sc.plume.background
+    assert not sim.m.reached and sim.target() is None
