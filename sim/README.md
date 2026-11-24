@@ -186,7 +186,7 @@ Things to know:
 
 ## Tests
 
-From `sim/`: `.venv\Scripts\python -m pytest`. This also runs the contract consistency tests in `contract/tests`. There are 245 tests (121 simulator, 124 contract):
+From `sim/`: `.venv\Scripts\python -m pytest`. This also runs the contract consistency tests in `contract/tests`. There are 288 tests (149 simulator, 139 contract):
 - kinematics and world geometry;
 - each sensor model and the firmware sensor processing;
 - the edge state machine, including watchdog → fallback → recovery, e-stop override, sleep, escape

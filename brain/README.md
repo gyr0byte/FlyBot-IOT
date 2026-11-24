@@ -54,7 +54,7 @@ Without the flag, a reboot keeps state and the random stream simply continues.
 
 Don't run `sim\tools\drive.py` at the same time: it also logs in as `brain`.
 
-## What it does on the wire (contract revision 7)
+## What it does on the wire (contract revision 9)
 
 - **One control tick per `sensors` message** (§7.1). It answers with `cmd/motor`: `rs` = that
   `seq`, `ttl` 300 ms.
@@ -658,6 +658,43 @@ in the same case the neurons it inhibits (PN right, 0.59 vs 0.55 Hz) and the Ken
 Its cause is not explained; near threshold, tiny differences in how the two simulators order
 updates within a step can change whether a spike happens.
 
+## Phase 5 regression after steps 5.7–5.12
+
+Re-run on the final code of step 5.12 with the same method and seeds as before.
+
+**Seeking** (3 base seeds × 50 independent trials per controller and scenario; before = the
+re-measurement in "Neural vs baseline" above, after step 5.6):
+
+| Scenario | Controller | Before: seeds 1 / 2 / 3, pooled | Now: seeds 1 / 2 / 3, pooled (95% CI) | Median time before / now | Collisions per trial before / now |
+|---|---|---|---|---|---|
+| default | neural | 82 / 84 / 80%, 82% | 86 / 74 / 78%, **79%** (72–85%) | 21.5 / 21.6 s | 0.25 / 0.30 |
+| default | baseline | 84 / 88 / 80%, 84% | 84 / 88 / 80%, **84%** (77–89%) | 20.0 / 20.0 s | 0.23 / 0.23 |
+| obstacles | neural | 54 / 56 / 44%, 51% | 44 / 56 / 46%, **49%** (41–57%) | 29.1 / 26.7 s | 2.17 / 1.79 |
+| obstacles | baseline | 68 / 56 / 58%, 61% | 68 / 56 / 58%, **61%** (53–68%) | 26.7 / 26.7 s | 1.39 / 1.39 |
+| two_sources | neural | 90 / 94 / 94%, 93% | 86 / 92 / 94%, **91%** (85–94%) | 23.4 / 27.0 s | 0.00 / 0.03 |
+| two_sources | baseline | 100 / 96 / 96%, 97% | 100 / 96 / 96%, **97%** (93–99%) | 21.9 / 22.1 s | 0.05 / 0.05 |
+
+- **Baseline: identical to before**, trial for trial. Its code did not change, and the batch method
+  reproduces runs exactly.
+- **Neural: within noise of before** on every scenario (the intervals overlap widely). It now
+  includes hunger and fear (5.7), whose speed scaling (R1) slows seeking when the valence is low;
+  the median time on `two_sources` rose by 3.6 s, and collisions on `obstacles` fell.
+- 4 lockstep timeouts in 450 neural trials (host load), none in the baseline's.
+
+**Learning** (5.6 protocol, 10 animals, punish lit vs control twins, hunger held at 0, automatic
+sleep off; before = the same animals 0–9 in the 5.6 experiment):
+
+| Measure | Before (5.6) | Now |
+|---|---|---|
+| lit approaches vs control twin | −2.4 (1 / 7, p = 0.070) | **−2.8** (0 / 8, p = 0.008) |
+| dark approaches vs control twin | +1.4 (7 / 2, p = 0.18) | **+1.5** (6 / 0, p = 0.031) |
+| timeouts vs control twin | +1.0 (8 / 1, p = 0.039) | +1.3 (8 / 0, p = 0.008) |
+| ΔPI, punish lit | −0.50 (1 / 9, p = 0.021) | −0.43 (2 / 8, p = 0.11) |
+| learned valence lit / dark | −0.86 / −0.41 | −0.65 / −0.36 |
+
+The 5.6 conclusions hold: punishment moves animals from the lit to the dark source and the learned
+valence is cue-biased with partial generalisation. No lockstep timeouts in these 620 trials.
+
 ## Circuit file format (version 1)
 
 Circuits are **data, not code** (plan, Phase 5 design rule). The network engine
@@ -796,10 +833,10 @@ The budget is 50 ms per tick; the target was under 10 ms. `tests/test_network.py
 
 ## Tests
 
-From `brain\`: `.venv\Scripts\python -m pytest`. That runs 260 tests (136 brain, 124 contract):
-- the core: tick, time base, reboots, gaps, warm-up, stale, paused, sleep, control, the reset flag
-  and per-trial seeds;
-- the command line (`--no-persistence`);
+From `brain\`: `.venv\Scripts\python -m pytest`. That runs 340 tests (201 brain, 139 contract):
+- the core: tick, time base, reboots, gaps, warm-up, stale, paused, sleep, control, the reset flag,
+  per-trial seeds and the backlog guard (`brain/status.lag`);
+- the command line (`--no-persistence`, `--lesion`, `--restore-lesions`);
 - message parsing in the link;
 - baseline decisions;
 - the circuit loader, accepting and rejecting every format rule;
@@ -812,4 +849,9 @@ From `brain\`: `.venv\Scripts\python -m pytest`. That runs 260 tests (136 brain,
   APL needed for sparseness;
 - learning (5.6): dopamine neurons, punishment / reward / delayed punishment change the valence,
   graded change per pairing, `brain/weights`, snapshots of learned weights;
+- internal states (5.7): `state_modulation` format and engine, the designed coupling, the silence
+  guard for the output neurons, hunger and fear dynamics, slower seeking at low drive;
+- sleep (5.9): the two-part synapse (no change without sleep), consolidation, sleep and wake with
+  hysteresis, user sleep;
+- lesions and explanations (5.10); save and restore (5.11); the refractory convention (5.12);
 - the shared contract consistency tests.

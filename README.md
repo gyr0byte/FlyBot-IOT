@@ -80,11 +80,11 @@ in `firmware/include/secrets.h` (git-ignored).
 | Phase | What | State |
 |---|---|---|
 | 0 | Repository, conventions, `.gitignore`, `.env.example` | ✅ done |
-| 1 | Message contract + JSON Schemas | ✅ done (contract revision 7) |
+| 1 | Message contract + JSON Schemas | ✅ done (contract revision 9) |
 | 2 | Local Mosquitto broker with users and ACL | ✅ done (Mosquitto 2.1.4, ACL test 182/182) |
 | 3 | Simulator | ✅ done (lockstep about 20x real time; learning-experiment support added in Phase 5) |
 | 4 | Brain skeleton + rule-based baseline | ✅ done (baseline, re-measured with independent trials: 84% / 61% / 97%, see [brain/README.md](brain/README.md)) |
-| 5 | Neural brain | in progress: 5.1–5.6 done (neural steering 82% / 51% / 93%; mushroom body and dopamine learning: punishment learned and mostly cue-specific (30 animals), reward untestable at ceiling; see [brain/README.md](brain/README.md#learning-phase-5-steps-55-56)) |
+| 5 | Neural brain | in progress: 5.1–5.12 done (neural steering 79% / 49% / 91%; mushroom body and dopamine learning: punishment learned and mostly cue-specific, reward untestable at ceiling; hunger and fear, habituation on the robot, sleep with consolidation, lesions and explanations, save and restore, Brian2 check; see [brain/README.md](brain/README.md)). Next: 5.13 FlyWire circuit |
 | 6 | ESP32 firmware | not started (waiting for parts; reference logic in `sim/flybot_sim/edge*.py`) |
 | 7–13 | Integration, logger, dashboard, bot, cloud, evaluation, demo | not started |
 
