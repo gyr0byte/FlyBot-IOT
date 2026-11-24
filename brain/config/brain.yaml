@@ -82,3 +82,8 @@ sleep:
   light_above: 0.25         # light above this for light_for_s -> wake (why "light"); a passing shadow
   light_for_s: 2            # cannot trigger sleep (20 s) and the gap 0.10-0.25 is the hysteresis
   consolidate_tau_s: 60     # labile -> stable while asleep (0 = no consolidation)
+
+# Logger (Phase 8): every message into SQLite at FLYBOT_DB_PATH (.env), on the brain's connection.
+logger:
+  enabled: true             # python -m flybot_brain --no-logger switches it off (experiment tools do)
+  retention_days: 7         # raw sensors / commands / brain_state older than this are pruned at start

@@ -15,6 +15,7 @@ import argparse
 import logging
 import sys
 import threading
+from pathlib import Path
 
 from flybot_contract import Contract
 
@@ -43,11 +44,31 @@ def build(args) -> tuple[Brain, BrainLink]:
     brain = Brain(cfg, contract, Snapshots(cfg.persistence.path()))
     if cfg.persistence.load_on_start and brain.load("latest"):
         log.info("loaded snapshot 'latest'")
+    if args.no_logger:
+        cfg.logger.enabled = False
     for target in args.lesion or []:
         if not brain.set_lesion(target, True):
             raise SystemExit(f"lesion {target!r} is not available with controller {cfg.controller}")
         log.warning("started with lesion %s", target)
     return brain, BrainLink(settings, contract, brain)
+
+
+def start_logger(cfg, link):
+    """Phase 8: the logger module on the brain's connection (it sees every message the link gets)."""
+    if not cfg.logger.enabled:
+        return None
+    from .config import db_path_from_env
+    from .logger import tools
+    from .logger.core import Logger
+    path = db_path_from_env()
+    try:
+        tools.prune(path, cfg.logger.retention_days) if Path(path).exists() else None
+    except Exception as e:                       # pruning must never stop the brain
+        log.warning("logger: prune failed: %s", e)
+    logger = Logger(link.contract, path)
+    logger.start()
+    link.taps.append(logger.tap)
+    return logger
 
 
 def main(argv=None) -> int:
@@ -60,6 +81,8 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, help="override the config's random seed")
     ap.add_argument("--lesion", action="append", choices=["rcpt", "ln", "mb", "apl", "learn", "hun", "fear"],
                     help="start with this group / function switched off (repeatable; e.g. lesion batches)")
+    ap.add_argument("--no-logger", action="store_true",
+                    help="do not record messages into the database (experiment tools use this)")
     ap.add_argument("--restore-lesions", action="store_true",
                     help="when loading a snapshot, also re-apply the lesions it was saved with (off by default)")
     ap.add_argument("--no-persistence", action="store_true",
@@ -71,6 +94,7 @@ def main(argv=None) -> int:
 
     brain, link = build(args)
     cfg = brain.cfg
+    logger = start_logger(cfg, link)
     log.info("controller %s, reset_on_reboot %s, seed %s, load snapshot %s, save snapshot %s", cfg.controller,
              cfg.experiment.reset_on_reboot, cfg.seed, cfg.persistence.load_on_start, cfg.persistence.save_on_exit)
     if not link.start():
@@ -85,6 +109,9 @@ def main(argv=None) -> int:
         if cfg.persistence.save_on_exit and brain.save("latest"):
             log.info("saved snapshot 'latest'")
         link.stop()
+        if logger is not None:
+            logger.stop()
+            log.info("logger: %d messages written", logger.written)
         log.info("stopped: %s", brain.counters)
     return 0
 

@@ -1,6 +1,4 @@
-"""Logger module (Phase 8): not built yet.
-
-Will subscribe through the brain's MQTT connection (user "brain" reads flybot/01/#), validate
-every message with flybot_contract and write it to SQLite, using `up` (not arrival time) to place
-messages from fast lockstep runs on a timeline (contract 7.1 (6)).
+"""Logger module (Phase 8): every FlyBot message -> validated -> SQLite (core.Logger), CSV export and
+retention (tools), read-only HTTP API for the dashboard (api). Runs inside the brain program on the
+brain's MQTT connection (link taps) or standalone: python -m flybot_brain.logger run.
 """

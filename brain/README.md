@@ -6,7 +6,7 @@ One Python program, `python -m flybot_brain`, made of separate modules:
 |---|---|---|---|
 | `core.py` + `controllers/` | **Phase 4–5** | Contract rules, control ticks, baseline and neural controllers | `brain` |
 | `network/` + `circuits/` | **Phase 5** | Spiking network engine with dopamine-gated plasticity; circuits as data (designed now, FlyWire in 5.13) | – |
-| `logger/` | Phase 8 | Every `flybot/01/#` message → SQLite, on the brain's connection | `brain` |
+| `logger/` | **Phase 8** | Every `flybot/01/#` message → SQLite, on the brain's connection; CSV export; read API | `brain` |
 | `bot/` | Phase 10 | Telegram alerts and commands, own connection with a narrow ACL | `bot` |
 
 The modules talk only through MQTT. Contract code (schemas, sequence rules, robot clock) comes
@@ -37,7 +37,7 @@ From the `brain` folder:
 .venv\Scripts\python -m flybot_brain --controller neural --no-persistence   # a naive brain
 ```
 
-Other options: `--config <yaml>`, `--seed N`, `-v`. **Ctrl+C** stops it cleanly: it saves snapshot
+Other options: `--config <yaml>`, `--seed N`, `--no-logger`, `-v`. **Ctrl+C** stops it cleanly: it saves snapshot
 `latest` and publishes `brain/status` offline. `--no-persistence` neither loads nor saves `latest`
 (each learning-experiment animal starts naive).
 
@@ -87,6 +87,49 @@ Don't run `sim\tools\drive.py` at the same time: it also logs in as `brain`.
 
 Snapshots are JSON files in `.local\brain\snapshots\` (git-ignored, on D:). They hold internal
 state only. Parameters always come from `config\brain.yaml`.
+
+## Logger (Phase 8)
+
+A module of the brain program (`flybot_brain/logger/`), separate from the brain logic. The brain's
+MQTT link hands it every message on `flybot/01/#` (the brain's own messages included, as the broker
+echoes them back) before the brain looks at it. It runs in its own thread and writes to SQLite at
+`FLYBOT_DB_PATH` (`.env`, default `data/flybot.db` on D:, git-ignored).
+
+- **Validates** every message with the contract schemas; invalid ones are counted, not stored.
+- **Counts missing messages:** sequence numbers are tracked per topic and sender (contract §6), so
+  gaps (lost), duplicates and late messages are counted. A robot reboot (new `bid`) is not a gap;
+  retained messages and the fixed offline last wills are not stream steps. Counts are in the
+  `reliability` table.
+- **Writes in batches** (every 0.5 s or 200 rows), WAL mode so readers never block it.
+- **Tables** (plan step 8.1): `sensors`, `events` (robot events and rewards), `commands`
+  (`cmd/motor` from the brain, `cmd/manual`, and the control topics `cmd/mode`, `cmd/sleep`,
+  `brain/control`, `brain/sleep` with their sender), `brain_state`, `weights`, `latency` (robot
+  `rtt` / `crtt` from `status`, brain tick time and `lag` from `brain/status`), `status`, `trials`
+  (for the evaluation tools: `Logger.add_trial`) and `reliability`. Every row has the arrival time
+  `ts` (Unix seconds) and the sender's `up` (and `bid` for robot messages), so fast lockstep runs can
+  be placed on a robot-time timeline.
+- **Retention** (step 8.3): at start the brain prunes raw `sensors`, `commands` and `brain_state`
+  rows older than `logger.retention_days` (7). Events, trials, latency, status, weights and the
+  reliability counts are kept.
+- `--no-logger` switches it off; the experiment tools use it, so lockstep experiments do not flood
+  the database.
+
+```powershell
+.venv\Scripts\python -m flybot_brain.logger run                  # standalone, own connection (no brain)
+.venv\Scripts\python -m flybot_brain.logger export --out D:\exp   # one CSV per table (--minutes N)
+.venv\Scripts\python -m flybot_brain.logger prune --days 7
+.venv\Scripts\python -m flybot_brain.logger stats                 # row counts and reliability
+.venv\Scripts\python -m flybot_brain.logger api --port 8000      # read API, http://127.0.0.1:8000/docs
+```
+
+**Read API** (step 8.4, FastAPI, read-only, 127.0.0.1): `/api/health`, `/api/sensors?minutes=10`
+(downsampled to `max_points`), `/api/events?minutes=60`, `/api/latency?minutes=60` (median, p95,
+histograms), `/api/trials` (with success rates), `/api/timeline` (meals, startles, sleep periods)
+and `/api/reliability`. The dashboard's server calls it; the browser never does.
+
+**Checked live:** a brain with the logger and a 3-trial simulator batch recorded 2,158 sensor
+messages, 1,858 commands, 548 brain states, events, weights, status and latency, with 0 invalid and
+0 lost; the CSV export opened cleanly in pandas.
 
 ## Baseline controller
 

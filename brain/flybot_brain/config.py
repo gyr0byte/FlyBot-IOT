@@ -77,6 +77,13 @@ class States:
 
 
 @dataclass
+class LoggerCfg:
+    """Logger module (Phase 8): records every message into SQLite (FLYBOT_DB_PATH)."""
+    enabled: bool = True              # python -m flybot_brain --no-logger switches it off (experiments)
+    retention_days: float = 7.0       # raw sensors / commands / brain_state older than this are pruned
+
+
+@dataclass
 class Sleep:
     """Sleep and wake from the light sensor (plan step 5.9), and consolidation during sleep."""
     auto: bool = True               # sleep when it stays dark (off: only brain/sleep requests)
@@ -129,6 +136,7 @@ class BrainConfig:
     neural: Neural = field(default_factory=Neural)
     states: States = field(default_factory=States)
     sleep: Sleep = field(default_factory=Sleep)
+    logger: LoggerCfg = field(default_factory=LoggerCfg)
 
     def __post_init__(self):
         if self.controller not in ("baseline", "neural"):
@@ -194,17 +202,33 @@ class MqttSettings:
     robot_id: str = "01"
 
     @classmethod
-    def from_env(cls, env_path: Path | None = None) -> "MqttSettings":
-        path = env_path or REPO / ".env"
-        if not path.exists():
-            raise FileNotFoundError(f"{path} not found: run infra/mosquitto/make_passwords.py first")
-        env = {}
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if "=" in line and not line.lstrip().startswith("#"):
-                k, v = line.split("=", 1)
-                env[k.strip()] = v.strip()
+    def from_env(cls, env_path: Path | None = None, user_key: str = "BRAIN") -> "MqttSettings":
+        env = read_env(env_path)
         host = os.environ.get("MQTT_HOST", env.get("MQTT_HOST", "127.0.0.1"))
         if host == "localhost":
             host = "127.0.0.1"
-        return cls(host, int(env.get("MQTT_PORT", "1883")), env["MQTT_BRAIN_USER"], env["MQTT_BRAIN_PASS"],
-                   env.get("FLYBOT_ROBOT_ID", "01"))
+        return cls(host, int(env.get("MQTT_PORT", "1883")), env[f"MQTT_{user_key}_USER"],
+                   env[f"MQTT_{user_key}_PASS"], env.get("FLYBOT_ROBOT_ID", "01"))
+
+
+def read_env(env_path: Path | None = None) -> dict[str, str]:
+    """.env as a dict (KEY=VALUE lines; # comments). Process environment variables are not merged."""
+    path = env_path or REPO / ".env"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found: run infra/mosquitto/make_passwords.py first")
+    env = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = line.split("=", 1)
+            env[k.strip()] = v.strip()
+    return env
+
+
+def db_path_from_env(env_path: Path | None = None) -> str:
+    """The logger database: FLYBOT_DB_PATH (environment first, then .env), default data/flybot.db."""
+    if os.environ.get("FLYBOT_DB_PATH"):
+        return os.environ["FLYBOT_DB_PATH"]
+    try:
+        return read_env(env_path).get("FLYBOT_DB_PATH") or str(REPO / "data" / "flybot.db")
+    except FileNotFoundError:
+        return str(REPO / "data" / "flybot.db")

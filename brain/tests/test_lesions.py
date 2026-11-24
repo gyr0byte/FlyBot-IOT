@@ -153,7 +153,7 @@ def test_start_option_applies_lesions(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "load_config", load_config)
     monkeypatch.setattr(cli.MqttSettings, "from_env", classmethod(lambda cls: cls("127.0.0.1", 1883, "brain", "x", "01")))
     args = argparse.Namespace(config=None, controller="neural", reset_on_reboot=False, seed=None, no_persistence=True,
-                              lesion=["mb", "learn"], restore_lesions=False)
+                              lesion=["mb", "learn"], restore_lesions=False, no_logger=True)
     brain, _ = cli.build(args)
     assert brain.lesions == {"mb", "learn"} and brain.ctrl.net.silenced.any()
 

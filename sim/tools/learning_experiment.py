@@ -115,7 +115,8 @@ class Monitor:
 def start_brain(seed: int, logfile: Path, monitor: Monitor, config: str | None,
                 extra: list[str] | None = None) -> subprocess.Popen:
     env = {**os.environ, "PYTHONPYCACHEPREFIX": os.environ.get("PYTHONPYCACHEPREFIX", r"D:\Tools\cache\pycache")}
-    cmd = [str(BRAIN_PY), "-B", "-m", "flybot_brain", "--controller", "neural", "--no-persistence", "--seed", str(seed)]
+    cmd = [str(BRAIN_PY), "-B", "-m", "flybot_brain", "--controller", "neural", "--no-persistence", "--no-logger",
+           "--seed", str(seed)]
     if config:
         cmd += ["--config", str(Path(config).resolve())]
     cmd += extra or []
