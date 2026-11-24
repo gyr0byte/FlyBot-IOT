@@ -5,7 +5,7 @@
   "description": "Robot events, QoS 1, not retained, on occurrence. Each event type allows only its own extra keys. Contract section 3.2.",
   "type": "object",
   "properties": {
-    "v": { "const": 2, "description": "Schema version." },
+    "v": { "const": 3, "description": "Schema version." },
     "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number." },
     "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." },
     "bid": { "type": "integer", "minimum": 1, "maximum": 4294967295, "description": "Boot ID: random per robot boot; a different bid means the robot rebooted (contract 2, 6 rule 4)." },
@@ -15,7 +15,9 @@
     },
     "ttc": { "type": "integer", "minimum": 0, "maximum": 10000, "description": "escape: time-to-contact at trigger, ms." },
     "d": { "type": "number", "minimum": 2, "maximum": 400, "description": "escape/obstacle: distance at trigger, cm (1 dp)." },
-    "lat": { "type": "number", "minimum": 0, "maximum": 1000, "description": "escape: detection-to-motor time on the ESP32, ms (1 dp)." },
+    "lat": { "type": "number", "minimum": 0, "maximum": 1000, "description": "escape: detection-to-motor time on the ESP32, ms (1 dp). Only when resp > 0." },
+    "resp": { "type": "number", "minimum": 0, "maximum": 1, "description": "escape: response strength used, 0-1 (2 dp). 0 = looming detected but habituated: the robot did not move." },
+    "hab": { "type": "number", "minimum": 0, "maximum": 1, "description": "escape: habituation of this stimulus class just before it, 0-1 (2 dp)." },
     "why": {
       "enum": ["cmd_timeout", "ttl_expired", "wifi_lost", "mqtt_lost"],
       "description": "fallback_on: reason."
@@ -44,10 +46,13 @@
         "required": ["e"]
       },
       "then": {
-        "required": ["ttc", "d", "lat"],
+        "required": ["ttc", "d", "resp", "hab"],
         "propertyNames": {
-          "enum": ["v", "seq", "up", "bid", "e", "ttc", "d", "lat"]
-        }
+          "enum": ["v", "seq", "up", "bid", "e", "ttc", "d", "lat", "resp", "hab"]
+        },
+        "if": { "properties": { "resp": { "exclusiveMinimum": 0 } }, "required": ["resp"] },
+        "then": { "required": ["lat"] },
+        "else": { "not": { "required": ["lat"] } }
       }
     },
     {
@@ -122,11 +127,12 @@
     }
   ],
   "examples": [
-    { "v": 2, "seq": 7, "up": 61234, "bid": 2847193551, "e": "escape", "ttc": 420, "d": 31.0, "lat": 3.2 },
-    { "v": 2, "seq": 8, "up": 64010, "bid": 2847193551, "e": "obstacle", "d": 12.4 },
-    { "v": 2, "seq": 9, "up": 70500, "bid": 2847193551, "e": "fallback_on", "why": "cmd_timeout" },
-    { "v": 2, "seq": 10, "up": 82750, "bid": 2847193551, "e": "fallback_off", "dur": 12250 },
-    { "v": 2, "seq": 11, "up": 3600000, "bid": 2847193551, "e": "low_battery", "bat": 6.45, "cut": false },
-    { "v": 2, "seq": 0, "up": 2140, "bid": 2847193551, "e": "boot", "rst": "power_on", "fw": "0.1.0" }
+    { "v": 3, "seq": 7, "up": 61234, "bid": 2847193551, "e": "escape", "ttc": 420, "d": 31.0, "lat": 3.2, "resp": 0.82, "hab": 0.18 },
+    { "v": 3, "seq": 12, "up": 75020, "bid": 2847193551, "e": "escape", "ttc": 510, "d": 34.0, "resp": 0.0, "hab": 0.86 },
+    { "v": 3, "seq": 8, "up": 64010, "bid": 2847193551, "e": "obstacle", "d": 12.4 },
+    { "v": 3, "seq": 9, "up": 70500, "bid": 2847193551, "e": "fallback_on", "why": "cmd_timeout" },
+    { "v": 3, "seq": 10, "up": 82750, "bid": 2847193551, "e": "fallback_off", "dur": 12250 },
+    { "v": 3, "seq": 11, "up": 3600000, "bid": 2847193551, "e": "low_battery", "bat": 6.45, "cut": false },
+    { "v": 3, "seq": 0, "up": 2140, "bid": 2847193551, "e": "boot", "rst": "power_on", "fw": "0.1.0" }
   ]
 }

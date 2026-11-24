@@ -265,7 +265,7 @@ def test_sleep_request_sends_cmd_sleep_stops_commands_and_repeats():
 # ----------------------------------------------------------------------------- brain/control
 
 def control(b, seq, c, **kw):
-    msg = {"v": 3, "seq": seq, "up": seq, "src": D, "c": c, **kw}
+    msg = {"v": 4, "seq": seq, "up": seq, "src": D, "c": c, **kw}
     C.validate("brain/control", msg)
     outs = b.handle("brain/control", msg)
     return only(outs, "brain/state")[0]["ack"]
@@ -298,10 +298,34 @@ def test_save_load_and_reset(tmp_path):
     assert control(b, 5, "save")["ok"] and (tmp_path / "latest.json").exists()
 
 
+def test_state_command_sets_hunger_and_fear():
+    b, _ = make()
+    assert control(b, 20, "state", hun=0.9)["ok"] and b.hun == 0.9 and b.fear == 0.0
+    assert control(b, 21, "state", hun=0.2, fear=0.8)["ok"] and (b.hun, b.fear) == (0.2, 0.8)
+    st = only(b.handle("brain/control", {"v": 4, "seq": 22, "up": 22, "src": D, "c": "state", "fear": 0.5}),
+              "brain/state")[0]
+    assert (st["hun"], st["fear"]) == (0.2, 0.5)
+
+
+def test_habituation_is_mirrored_from_status_and_escape_events():
+    b, _ = make()
+    status = {"v": 3, "seq": 4, "up": 9000, "bid": BID, "st": "cloud", "m": "auto", "rssi": -50, "heap": 1,
+              "bat": 7.9, "rtt": None, "crtt": None, "fw": "0.1.0", "hab": 0.25}
+    C.validate("status", status)
+    b.handle("status", status)
+    assert b._state()[1]["hab"] == 0.25
+    esc = {"v": 3, "seq": 2, "up": 9100, "bid": BID, "e": "escape", "ttc": 500, "d": 30.0, "resp": 0.0, "hab": 0.8}
+    C.validate("events", esc)
+    b.handle("events", esc)
+    assert b._state()[1]["hab"] == 0.8
+    b.handle("status", {"v": 3, "seq": 0, "up": 1, "bid": BID, "st": "offline"})     # last will: kept
+    assert b._state()[1]["hab"] == 0.8
+
+
 def test_control_from_two_tabs_is_tracked_per_sender():
     b, _ = make()
     assert control(b, 10, "reset", what="state")["ok"]
-    msg = {"v": 3, "seq": 0, "up": 5, "src": "dash-aaaaaa", "c": "reset", "what": "state"}
+    msg = {"v": 4, "seq": 0, "up": 5, "src": "dash-aaaaaa", "c": "reset", "what": "state"}
     assert only(b.handle("brain/control", msg), "brain/state")[0]["ack"]["src"] == "dash-aaaaaa"
 
 

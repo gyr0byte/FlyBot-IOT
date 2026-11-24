@@ -295,6 +295,10 @@ class Edge:
 
     # ------------------------------------------------------------------ escape
 
+    def hab_level(self) -> float:
+        """Current looming habituation, 0 = full response (contract 3.3 status.hab). Step 5.8."""
+        return 0.0
+
     def _start_escape(self, d_cm: float, ttc: float, now: int) -> None:
         cfg = self.cfg
         self.escape_return = self.state
@@ -305,7 +309,8 @@ class Edge:
         self.loom_hits = 0
         self.stats["escapes"] += 1
         self.escape_pending = {"e": "escape", "ttc": int(min(max(round(ttc), 0), 10000)),
-                               "d": round(min(max(d_cm, 2.0), 400.0), 1), "detected_ms": now}
+                               "d": round(min(max(d_cm, 2.0), 400.0), 1), "detected_ms": now,
+                               "resp": 1.0, "hab": 0.0}          # habituation: plan step 5.8
 
     # ------------------------------------------------------------------ main step
 
@@ -361,7 +366,8 @@ class Edge:
         if self.escape_pending is not None and self.state == ESCAPE:
             ev = self.escape_pending
             self.escape_pending = None
-            self._emit(e="escape", ttc=ev["ttc"], d=ev["d"], lat=round(float(now - ev["detected_ms"]), 1))
+            self._emit(e="escape", ttc=ev["ttc"], d=ev["d"], lat=round(float(now - ev["detected_ms"]), 1),
+                       resp=ev["resp"], hab=ev["hab"])
         return self.out
 
     def _target(self, now: int) -> tuple[float, float]:

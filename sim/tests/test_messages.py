@@ -32,7 +32,7 @@ def test_topics_and_versions_come_from_the_schemas():
     assert C.topic("cmd/motor") == "flybot/01/cmd/motor"
     assert C.name_of("flybot/01/cmd/sleep") == "cmd/sleep"
     assert C.name_of("flybot/02/cmd/sleep") is None
-    assert C.versions["brain/control"] == 3 and C.versions["sensors"] == 2
+    assert C.versions["brain/control"] == 4 and C.versions["sensors"] == 2
 
 
 def test_outbox_counts_seq_per_topic_and_validates():
@@ -64,7 +64,7 @@ def test_decode_rejects_invalid_and_unknown_version():
 
 def test_last_will_is_the_contract_offline_message():
     lwt = offline_status(C, 2310, bid=2847193551)
-    assert lwt == {"v": 2, "seq": 0, "up": 2310, "bid": 2847193551, "st": "offline"}
+    assert lwt == {"v": 3, "seq": 0, "up": 2310, "bid": 2847193551, "st": "offline"}
 
 
 # ----------------------------------------------------------------------------- what the simulator publishes

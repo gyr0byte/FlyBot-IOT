@@ -1,6 +1,6 @@
 # FlyBot MQTT message contract
 
-**Contract revision:** 7 (2026-11-24). Each message type's current `v` is in the §1 table.
+**Contract revision:** 8 (2026-11-24). Each message type's current `v` is in the §1 table.
 
 This is the source of truth for every message between the FlyBot programs. Programs only
 talk through MQTT. If code and this document disagree, the code is wrong. The
@@ -30,17 +30,17 @@ program and uses the `brain` connection.
 | Topic | Published by | Subscribed by | QoS | Retained | Rate | Schema | `v` |
 |---|---|---|---|---|---|---|---|
 | `sensors` | robot | brain, dashboard | 0 | no | 20 Hz (10–20 allowed) | `sensors` | 2 |
-| `events` | robot | brain, dashboard, bot | 1 | no | on occurrence | `events` | 2 |
-| `status` | robot (last will: broker) | brain, dashboard, bot | 1 | **yes** | on change + every 10 s | `status` | 2 |
+| `events` | robot | brain, dashboard, bot | 1 | no | on occurrence | `events` | 3 |
+| `status` | robot (last will: broker) | brain, dashboard, bot | 1 | **yes** | on change + every 10 s | `status` | 3 |
 | `cmd/motor` | brain | robot, dashboard | 0 | no | one per `sensors` message (20 Hz) | `cmd-motor` | 1 |
 | `cmd/manual` | dashboard | robot, brain | 0 | no | 10 Hz while driving | `cmd-manual` | 2 |
 | `cmd/mode` | dashboard, bot | robot, brain, dashboard, bot | 1 | **yes** | on user action | `cmd-mode` | 2 |
 | `cmd/sleep` | brain | robot, dashboard | 1 | no | on change + every 5 s while asleep | `cmd-sleep` | 1 |
 | `reward` | robot (buttons), dashboard, bot | brain, dashboard | 1 | no | on press | `reward` | 3 |
 | `brain/status` | brain (last will: broker) | dashboard, bot | 1 | **yes** | on change + every 10 s | `brain-status` | 2 |
-| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 4 |
+| `brain/state` | brain | dashboard, bot | 0 | no | 5 Hz | `brain-state` | 5 |
 | `brain/weights` | brain | dashboard | 1 | **yes** | on change, max 1 per 2 s | `brain-weights` | 1 |
-| `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 3 |
+| `brain/control` | dashboard only | brain | 1 | no | on user action | `brain-control` | 4 |
 | `brain/sleep` | dashboard, bot | brain only | 1 | no | on user action | `brain-sleep` | 2 |
 | `ping` | robot | brain | 0 | no | 1 Hz | `ping` | 2 |
 | `pong` | brain | robot | 0 | no | once per ping, immediately | `pong` | 1 |
@@ -142,9 +142,11 @@ Extra keys per event type (each type allows **only** its own keys):
 
 | `e` | Extra key | Type | Unit | Range | Dec. | Meaning |
 |---|---|---|---|---|---|---|
-| `escape` | `ttc` | integer | ms | 0 … 10000 | 0 | Time-to-contact when the looming escape fired. |
-| | `d` | number | cm | 2.0 … 400.0 | 1 | Distance when it fired. |
-| | `lat` | number | ms | 0.0 … 1000.0 | 1 | Detection-to-motor time measured on the ESP32. |
+| `escape` | `ttc` | integer | ms | 0 … 10000 | 0 | Time-to-contact when the looming stimulus was detected. |
+| | `d` | number | cm | 2.0 … 400.0 | 1 | Distance at detection. |
+| | `resp` | number | – | 0.00 … 1.00 | 2 | Escape strength used (scales the reverse and turn). `0` = detected but habituated: the robot did not move. |
+| | `hab` | number | – | 0.00 … 1.00 | 2 | Habituation of this stimulus class just before the stimulus (0 = full response). |
+| | `lat` | number | ms | 0.0 … 1000.0 | 1 | Detection-to-motor time measured on the ESP32. Present **only** when `resp` > 0. |
 | `obstacle` | `d` | number | cm | 2.0 … 400.0 | 1 | Distance at which the obstacle stop fired. |
 | `fallback_on` | `why` | string | – | `cmd_timeout`, `ttl_expired`, `wifi_lost`, `mqtt_lost` | – | Why the robot entered local fallback. |
 | `fallback_off` | `dur` | integer | ms | 0 … 86400000 | 0 | Time spent in fallback. |
@@ -155,16 +157,26 @@ Extra keys per event type (each type allows **only** its own keys):
 
 Reward/punish button presses go to `reward` (with `src:"btn"`), not to `events`.
 
+**Habituation (revision 8).** The looming escape habituates on the robot: repeated harmless
+stimuli of the same kind give weaker escapes, recovering with rest, and a stronger stimulus gives
+the full response again. `escape` is therefore sent for **every** looming detection, including
+fully habituated ones (`resp` 0, no `lat`), so the brain and dashboard can follow habituation even
+when the robot does not move. The current level is also in `status.hab` (§3.3).
+
 ```json
-{"v":2,"seq":7,"up":61234,"bid":2847193551,"e":"escape","ttc":420,"d":31.0,"lat":3.2}
+{"v":3,"seq":7,"up":61234,"bid":2847193551,"e":"escape","ttc":420,"d":31.0,"lat":3.2,"resp":0.82,"hab":0.18}
+```
+A habituated stimulus (detected, no movement):
+```json
+{"v":3,"seq":12,"up":75020,"bid":2847193551,"e":"escape","ttc":510,"d":34.0,"resp":0.0,"hab":0.86}
 ```
 Other types:
 ```json
-{"v":2,"seq":8,"up":64010,"bid":2847193551,"e":"obstacle","d":12.4}
-{"v":2,"seq":9,"up":70500,"bid":2847193551,"e":"fallback_on","why":"cmd_timeout"}
-{"v":2,"seq":10,"up":82750,"bid":2847193551,"e":"fallback_off","dur":12250}
-{"v":2,"seq":11,"up":3600000,"bid":2847193551,"e":"low_battery","bat":6.45,"cut":false}
-{"v":2,"seq":0,"up":2140,"bid":2847193551,"e":"boot","rst":"power_on","fw":"0.1.0"}
+{"v":3,"seq":8,"up":64010,"bid":2847193551,"e":"obstacle","d":12.4}
+{"v":3,"seq":9,"up":70500,"bid":2847193551,"e":"fallback_on","why":"cmd_timeout"}
+{"v":3,"seq":10,"up":82750,"bid":2847193551,"e":"fallback_off","dur":12250}
+{"v":3,"seq":11,"up":3600000,"bid":2847193551,"e":"low_battery","bat":6.45,"cut":false}
+{"v":3,"seq":0,"up":2140,"bid":2847193551,"e":"boot","rst":"power_on","fw":"0.1.0"}
 ```
 
 ### 3.3 `flybot/01/status`
@@ -186,16 +198,17 @@ publishes the same message itself before disconnecting.
 | `rtt` | number \| null | ms | 0.0 … 60000.0 | 1 | Median ping→pong round-trip time over the last 10 s. `null` if no pongs. |
 | `crtt` | number \| null | ms | 0.0 … 60000.0 | 1 | Median sensor→`cmd/motor` round-trip time over the last 10 s, from the `rs` echo. `null` if none. |
 | `fw` | string | – | 1–16 chars, `[0-9A-Za-z.+-]` | – | Firmware version. |
+| `hab` | number | – | 0.00 … 1.00 | 2 | Current habituation of the looming escape: the highest level over stimulus classes (0 = full response). |
 
 When `st` is `offline` the message has **only** `v`, `seq`, `up`, `bid`, `st`. It is fixed at connect
 time, so `seq` is 0, `up` is the uptime at connect, and `bid` is the current boot's ID.
 
 ```json
-{"v":2,"seq":120,"up":1200400,"bid":2847193551,"st":"cloud","m":"auto","rssi":-61,"heap":182344,"bat":7.58,"rtt":48.5,"crtt":71.0,"fw":"0.1.0"}
+{"v":3,"seq":120,"up":1200400,"bid":2847193551,"st":"cloud","m":"auto","rssi":-61,"heap":182344,"bat":7.58,"rtt":48.5,"crtt":71.0,"fw":"0.1.0","hab":0.25}
 ```
 Last will:
 ```json
-{"v":2,"seq":0,"up":2310,"bid":2847193551,"st":"offline"}
+{"v":3,"seq":0,"up":2310,"bid":2847193551,"st":"offline"}
 ```
 
 ### 3.4 `flybot/01/cmd/motor`
@@ -340,6 +353,7 @@ Brain → dashboard, bot. QoS 0, not retained, 5 Hz.
 | `v`, `seq`, `up` | | | | | Common fields. |
 | `hun` | number | – | 0.00 … 1.00 | 2 | Hunger. |
 | `fear` | number | – | 0.00 … 1.00 | 2 | Fear. |
+| `hab` | number | – | 0.00 … 1.00 | 2 | The robot's looming habituation as last reported (`status.hab`, `escape.hab`). |
 | `slp` | boolean | – | | – | Brain is asleep. |
 | `dec` | string | – | `seek`, `explore`, `approach`, `avoid`, `freeze`, `eat`, `sleep`, `stale`, `paused`, `warmup` | – | Current decision. `stale` = sensor data older than 250 ms (or none yet): the brain is **not** publishing `cmd/motor`, and the robot's watchdog takes over. `paused` = mode is not `auto`. `warmup` = `sensors` are arriving but the odour values are still `null` (MQ-3 warm-up and calibration): the brain sends no `cmd/motor`, because the robot holds itself still in `boot` (§5). `sens` stays `ok`. |
 | `why` | array of string | – | 0–3 items, each `^[a-z][a-z0-9_]{0,15}$` | – | Main contributors to the decision, strongest first (e.g. `odour_l`, `hunger`, `fear`, `avoid`). |
@@ -354,13 +368,13 @@ Brain → dashboard, bot. QoS 0, not retained, 5 Hz.
 `ma`, `mv` output approach/avoid · `dp`, `dn` dopamine reward/punish.
 
 ```json
-{"v":4,"seq":2210,"up":442100,"hun":0.63,"fear":0.08,"slp":false,"dec":"seek","why":["odour_l","hunger"],"spk":{"rl":41,"rr":22,"pl":18,"pr":7,"ln":12,"kc":96,"apl":3,"ma":5,"mv":1},"les":[],"pref":{"odr":0.4,"lt":-0.6},"rs":1042,"ack":{"src":"dash-3fa2c1","seq":12,"ok":true}}
+{"v":5,"seq":2210,"up":442100,"hun":0.63,"fear":0.08,"hab":0.25,"slp":false,"dec":"seek","why":["odour_l","hunger"],"spk":{"rl":41,"rr":22,"pl":18,"pr":7,"ln":12,"kc":96,"apl":3,"ma":5,"mv":1},"les":[],"pref":{"odr":0.4,"lt":-0.6},"rs":1042,"ack":{"src":"dash-3fa2c1","seq":12,"ok":true}}
 ```
-About 280 bytes at 5 Hz.
+About 290 bytes at 5 Hz.
 
 At startup, before the first sensor message and before any network layer exists:
 ```json
-{"v":4,"seq":0,"up":210,"hun":0.0,"fear":0.0,"slp":false,"dec":"stale","why":[],"spk":{},"les":[],"pref":{},"rs":null,"ack":null}
+{"v":5,"seq":0,"up":210,"hun":0.0,"fear":0.0,"hab":0.0,"slp":false,"dec":"stale","why":[],"spk":{},"les":[],"pref":{},"rs":null,"ack":null}
 ```
 
 ### 3.11 `flybot/01/brain/weights`
@@ -398,7 +412,7 @@ tabs may be open, so every message carries the sending tab's `src`. The brain re
 |---|---|---|---|---|
 | `v`, `seq`, `up` | | | | Common fields. |
 | `src` | string | – | `^dash-[0-9a-f]{6}$` | Sender name of the dashboard tab (§2). |
-| `c` | string | – | `lesion`, `param`, `save`, `load`, `reset` | Command. |
+| `c` | string | – | `lesion`, `param`, `save`, `load`, `reset`, `state` | Command. |
 
 Extra keys per command (each command allows **only** its own keys):
 
@@ -411,16 +425,27 @@ Extra keys per command (each command allows **only** its own keys):
 | `save` | `name` | string, *optional* | `^[a-z0-9_-]{1,32}$` | Snapshot name. Default `latest`. |
 | `load` | `name` | string, *optional* | `^[a-z0-9_-]{1,32}$` | Snapshot name. Default `latest`. |
 | `reset` | `what` | string | `weights`, `state`, `all` | What to reset: learned weights, internal state (hunger, fear, habituation), or both. |
+| `state` | `hun` | number, *optional* | 0.00 … 1.00 | Set hunger now. |
+| | `fear` | number, *optional* | 0.00 … 1.00 | Set fear now. At least one of `hun`, `fear` is required. |
+
+**`state`** sets internal states directly (for demonstrations). The normal dynamics continue from
+the new value: hunger keeps rising, fear keeps decaying. A state that is lesioned (`hun` or
+`fear` off) is not changed and the brain answers `ack.ok = false`.
+
+**Lesion `hab`.** Habituation runs on the robot (§3.2), and no brain command reaches it there, so
+`lesion` with `tgt:"hab"` is answered with `ack.ok = false`.
 
 ```json
-{"v":3,"seq":12,"up":98000,"src":"dash-3fa2c1","c":"lesion","tgt":"mb","off":true}
+{"v":4,"seq":12,"up":98000,"src":"dash-3fa2c1","c":"lesion","tgt":"mb","off":true}
 ```
 Other commands:
 ```json
-{"v":3,"seq":13,"up":99500,"src":"dash-3fa2c1","c":"param","k":"ctrl","val":"neural"}
-{"v":3,"seq":14,"up":101000,"src":"dash-3fa2c1","c":"save","name":"after_training"}
-{"v":3,"seq":15,"up":102000,"src":"dash-3fa2c1","c":"load"}
-{"v":3,"seq":16,"up":103000,"src":"dash-3fa2c1","c":"reset","what":"weights"}
+{"v":4,"seq":13,"up":99500,"src":"dash-3fa2c1","c":"param","k":"ctrl","val":"neural"}
+{"v":4,"seq":14,"up":101000,"src":"dash-3fa2c1","c":"save","name":"after_training"}
+{"v":4,"seq":15,"up":102000,"src":"dash-3fa2c1","c":"load"}
+{"v":4,"seq":16,"up":103000,"src":"dash-3fa2c1","c":"reset","what":"weights"}
+{"v":4,"seq":17,"up":104000,"src":"dash-3fa2c1","c":"state","hun":0.9}
+{"v":4,"seq":18,"up":104500,"src":"dash-3fa2c1","c":"state","hun":0.2,"fear":0.8}
 ```
 
 ### 3.13 `flybot/01/brain/sleep`
@@ -807,3 +832,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | 5 | 2026-11-23 | MQ-3 warm-up: `brain/state` → `v = 4` with new `dec` value `warmup` (odour `null`, brain sends no `cmd/motor`, `sens` stays `ok`). §5 states the boot hold explicitly: motors off, commands ignored, no watchdog, leave `boot` only after odour calibration. |
 | 6 | 2026-11-23 | Boot ID: new field `bid` (random 1…4294967295 per robot boot) on every robot message: `sensors`, `events`, `status` (incl. last will) and `ping` → `v = 2`; `reward` → `v = 3` (`bid` required when `src` is `btn`, absent otherwise). §6 rule 4: a `bid` change is a reboot; with the same `bid`, `seq` alone decides duplicate / late / lost. §7.1 (3): the reboot step is a `bid` change. Other senders unchanged. |
 | 7 | 2026-11-24 | Lockstep (§7.1 (5)): the simulator's wait for `cmd/motor` is 100 ms for interactive runs and 2000 ms for batch and experiment runs, so host stalls cannot change batch results; timeouts are counted per trial. No payload or `v` changes. |
+| 8 | 2026-11-24 | Habituation visibility and state control: `events` → `v = 3` (`escape` sent for every looming detection, with `resp` and `hab`; `lat` only when `resp` > 0); `status` → `v = 3` (`hab`); `brain/state` → `v = 5` (`hab`); `brain/control` → `v = 4` (command `state` with `hun` / `fear`). Lesion `hab` answers `ack.ok = false` (habituation is robot-side). |

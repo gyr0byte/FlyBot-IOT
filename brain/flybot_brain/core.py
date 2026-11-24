@@ -66,6 +66,7 @@ class Brain:
         self.why: list[str] = ["no_sensors"]
         self.last_rs: int | None = None
         self.ack: dict | None = None
+        self.hab = 0.0                                   # robot's looming habituation, as last reported
 
         self.next_state_ms = 0                  # robot time
         self.next_weights_ms = 0                # robot time
@@ -106,7 +107,15 @@ class Brain:
             return self._on_control(msg)
         if name == "reward":
             return self._on_reward(msg)
-        return []                               # status, events: used from Phase 5.7 on
+        if name == "status":
+            if msg.get("st") != "offline" and "hab" in msg:
+                self.hab = float(msg["hab"])             # mirrored into brain/state.hab (revision 8)
+            return []
+        if name == "events":
+            if msg.get("e") == "escape":
+                self.hab = float(msg["hab"])
+            return []
+        return []
 
     def pong(self, msg: dict) -> Out:
         return self._out("pong", ps=msg["seq"], pu=msg["up"])
@@ -257,7 +266,8 @@ class Brain:
         return self._out("brain/status", st="online", ctrl=self.cfg.controller, tick=tick, ovr=ovr, sens=self.sens)
 
     def _state(self) -> Out:
-        return self._out("brain/state", hun=round(self.hun, 2), fear=round(self.fear, 2), slp=self.asleep,
+        return self._out("brain/state", hun=round(self.hun, 2), fear=round(self.fear, 2),
+                         hab=round(self.hab, 2), slp=self.asleep,
                          dec=self.dec, why=list(self.why[:3]), spk=self.ctrl.spikes(), les=[], pref=self.ctrl.pref(),
                          rs=self.last_rs, ack=self.ack)
 
@@ -295,6 +305,12 @@ class Brain:
                 ok = self.load(msg.get("name", "latest"))
             elif c == "reset":
                 self._reset_internal(msg["what"])
+                ok = True
+            elif c == "state":
+                if "hun" in msg:
+                    self.hun = min(max(float(msg["hun"]), 0.0), 1.0)
+                if "fear" in msg:
+                    self.fear = min(max(float(msg["fear"]), 0.0), 1.0)
                 ok = True
             elif c == "lesion":
                 log.info("lesion %s: not supported until Phase 5", msg["tgt"])

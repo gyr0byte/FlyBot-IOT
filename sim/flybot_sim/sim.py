@@ -261,7 +261,7 @@ class Simulation:
         rtt = self._median(self.m.rtts, t)
         crtt = self._median(self.m.crtts, t)
         self._publish("status", st=e.state, m=e.mode, rssi=-55, heap=182000, bat=self.values["bat"],
-                      rtt=rtt, crtt=crtt, fw=FIRMWARE_VERSION)
+                      rtt=rtt, crtt=crtt, fw=FIRMWARE_VERSION, hab=round(e.hab_level(), 2))
 
     @staticmethod
     def _median(samples: deque, t: int) -> float | None:

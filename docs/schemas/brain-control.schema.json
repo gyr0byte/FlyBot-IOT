@@ -5,17 +5,19 @@
   "description": "Commands to the brain from a dashboard tab (dashboard user only), QoS 1, NOT retained. Each command allows only its own extra keys. Result reported in brain/state.ack. Sleep/wake is not here: see brain/sleep. Contract section 3.12.",
   "type": "object",
   "properties": {
-    "v": { "const": 3, "description": "Schema version." },
+    "v": { "const": 4, "description": "Schema version." },
     "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Per-sender, per-topic sequence number." },
     "up": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Sender uptime, ms." },
     "src": { "type": "string", "pattern": "^dash-[0-9a-f]{6}$", "description": "Sender name of the dashboard tab, generated at page load." },
-    "c": { "enum": ["lesion", "param", "save", "load", "reset"], "description": "Command." },
+    "c": { "enum": ["lesion", "param", "save", "load", "reset", "state"], "description": "Command." },
     "tgt": { "enum": ["rcpt", "ln", "mb", "apl", "learn", "hab", "hun", "fear"], "description": "lesion: target group or function." },
     "off": { "type": "boolean", "description": "lesion: true = switch off, false = back on." },
     "k": { "type": "string", "pattern": "^[a-z][a-z0-9_.]{0,47}$", "description": "param: parameter name from the brain config." },
     "val": { "type": ["number", "boolean", "string"], "minLength": 1, "maxLength": 32, "description": "param: new value." },
     "name": { "type": "string", "pattern": "^[a-z0-9_-]{1,32}$", "description": "save/load: snapshot name, default 'latest'." },
-    "what": { "enum": ["weights", "state", "all"], "description": "reset: what to reset." }
+    "what": { "enum": ["weights", "state", "all"], "description": "reset: what to reset." },
+    "hun": { "type": "number", "minimum": 0, "maximum": 1, "description": "state: set hunger now, 0-1 (2 dp)." },
+    "fear": { "type": "number", "minimum": 0, "maximum": 1, "description": "state: set fear now, 0-1 (2 dp)." }
   },
   "required": ["v", "seq", "up", "src", "c"],
   "additionalProperties": false,
@@ -35,13 +37,22 @@
     {
       "if": { "properties": { "c": { "const": "reset" } }, "required": ["c"] },
       "then": { "required": ["what"], "propertyNames": { "enum": ["v", "seq", "up", "src", "c", "what"] } }
+    },
+    {
+      "if": { "properties": { "c": { "const": "state" } }, "required": ["c"] },
+      "then": {
+        "anyOf": [{ "required": ["hun"] }, { "required": ["fear"] }],
+        "propertyNames": { "enum": ["v", "seq", "up", "src", "c", "hun", "fear"] }
+      }
     }
   ],
   "examples": [
-    { "v": 3, "seq": 12, "up": 98000, "src": "dash-3fa2c1", "c": "lesion", "tgt": "mb", "off": true },
-    { "v": 3, "seq": 13, "up": 99500, "src": "dash-3fa2c1", "c": "param", "k": "ctrl", "val": "neural" },
-    { "v": 3, "seq": 14, "up": 101000, "src": "dash-3fa2c1", "c": "save", "name": "after_training" },
-    { "v": 3, "seq": 15, "up": 102000, "src": "dash-3fa2c1", "c": "load" },
-    { "v": 3, "seq": 16, "up": 103000, "src": "dash-3fa2c1", "c": "reset", "what": "weights" }
+    { "v": 4, "seq": 12, "up": 98000, "src": "dash-3fa2c1", "c": "lesion", "tgt": "mb", "off": true },
+    { "v": 4, "seq": 13, "up": 99500, "src": "dash-3fa2c1", "c": "param", "k": "ctrl", "val": "neural" },
+    { "v": 4, "seq": 14, "up": 101000, "src": "dash-3fa2c1", "c": "save", "name": "after_training" },
+    { "v": 4, "seq": 15, "up": 102000, "src": "dash-3fa2c1", "c": "load" },
+    { "v": 4, "seq": 16, "up": 103000, "src": "dash-3fa2c1", "c": "reset", "what": "weights" },
+    { "v": 4, "seq": 17, "up": 104000, "src": "dash-3fa2c1", "c": "state", "hun": 0.9 },
+    { "v": 4, "seq": 18, "up": 104500, "src": "dash-3fa2c1", "c": "state", "hun": 0.2, "fear": 0.8 }
   ]
 }
