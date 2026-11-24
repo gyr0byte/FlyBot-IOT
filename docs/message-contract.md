@@ -1,6 +1,6 @@
 # FlyBot MQTT message contract
 
-**Contract revision:** 6 (2026-11-23). Each message type's current `v` is in the §1 table.
+**Contract revision:** 7 (2026-11-24). Each message type's current `v` is in the §1 table.
 
 This is the source of truth for every message between the FlyBot programs. Programs only
 talk through MQTT. If code and this document disagree, the code is wrong. The
@@ -750,8 +750,12 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
    `seq = n` and `up` = its simulated time. It then waits for the `cmd/motor` with `rs = n`
    before simulating the next 50 ms. Nothing else changes on the wire. In `manual`, `estop` or
    while asleep it does not wait, because no command is expected. Otherwise it waits at most
-   100 ms of real time, and after 3 such timeouts in a row it runs freely until a command arrives
-   again, so the watchdog and fallback still work without a brain.
+   **W** of real time, and after 3 such timeouts in a row it runs freely until a command arrives
+   again, so the watchdog and fallback still work without a brain. W is **100 ms** for interactive
+   lockstep runs and **2000 ms** for batch and experiment runs: a timeout makes the robot carry on
+   with its previous command, so a brief host stall (scheduler, garbage collection) would otherwise
+   change a batch result. Batch results record the number of timeouts per trial; a trial with
+   timeouts cannot be reproduced exactly.
 6. **Latency figures come only from real-time runs.** In lockstep the wire round trip has nothing
    to do with robot time, so the simulator's `status.rtt` / `crtt` are measured in wall-clock time
    there. Latency and round-trip results for the report are taken **only** from real-time runs. In
@@ -802,3 +806,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | 4 | 2026-11-23 | Time base (§7.1): rates and durations are in robot time (`up`); the brain ticks once per `sensors` message and advances its dynamics by robot time only (monotonic, reboot step = 0, gaps over 500 ms capped at 100 ms); lockstep simulation; latency figures only from real-time runs. No payload or `v` changes. |
 | 5 | 2026-11-23 | MQ-3 warm-up: `brain/state` → `v = 4` with new `dec` value `warmup` (odour `null`, brain sends no `cmd/motor`, `sens` stays `ok`). §5 states the boot hold explicitly: motors off, commands ignored, no watchdog, leave `boot` only after odour calibration. |
 | 6 | 2026-11-23 | Boot ID: new field `bid` (random 1…4294967295 per robot boot) on every robot message: `sensors`, `events`, `status` (incl. last will) and `ping` → `v = 2`; `reward` → `v = 3` (`bid` required when `src` is `btn`, absent otherwise). §6 rule 4: a `bid` change is a reboot; with the same `bid`, `seq` alone decides duplicate / late / lost. §7.1 (3): the reboot step is a `bid` change. Other senders unchanged. |
+| 7 | 2026-11-24 | Lockstep (§7.1 (5)): the simulator's wait for `cmd/motor` is 100 ms for interactive runs and 2000 ms for batch and experiment runs, so host stalls cannot change batch results; timeouts are counted per trial. No payload or `v` changes. |

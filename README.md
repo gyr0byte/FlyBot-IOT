@@ -80,7 +80,7 @@ in `firmware/include/secrets.h` (git-ignored).
 | Phase | What | State |
 |---|---|---|
 | 0 | Repository, conventions, `.gitignore`, `.env.example` | ✅ done |
-| 1 | Message contract + JSON Schemas | ✅ done (contract revision 6) |
+| 1 | Message contract + JSON Schemas | ✅ done (contract revision 7) |
 | 2 | Local Mosquitto broker with users and ACL | ✅ done (Mosquitto 2.1.4, ACL test 182/182) |
 | 3 | Simulator | ✅ done (lockstep about 20x real time, 94 tests) |
 | 4 | Brain skeleton + rule-based baseline | ✅ done (baseline reaches the source in 86% / 62% / 98% of trials, see [brain/README.md](brain/README.md)) |

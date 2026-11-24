@@ -46,7 +46,7 @@ Other options: `--config <yaml>`, `--seed N`, `-v`. **Ctrl+C** stops it cleanly:
 
 Don't run `sim\tools\drive.py` at the same time: it also logs in as `brain`.
 
-## What it does on the wire (contract revision 6)
+## What it does on the wire (contract revision 7)
 
 - **One control tick per `sensors` message** (§7.1). It answers with `cmd/motor`: `rs` = that
   `seq`, `ttl` 300 ms.
