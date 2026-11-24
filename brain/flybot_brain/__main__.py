@@ -36,6 +36,8 @@ def build(args) -> tuple[Brain, BrainLink]:
         cfg.seed = args.seed
     if args.no_persistence:
         cfg.persistence.load_on_start = cfg.persistence.save_on_exit = False
+    if args.restore_lesions:
+        cfg.persistence.restore_lesions = True
     settings = MqttSettings.from_env()
     contract = Contract(settings.robot_id)
     brain = Brain(cfg, contract, Snapshots(cfg.persistence.path()))
@@ -58,6 +60,8 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, help="override the config's random seed")
     ap.add_argument("--lesion", action="append", choices=["rcpt", "ln", "mb", "apl", "learn", "hun", "fear"],
                     help="start with this group / function switched off (repeatable; e.g. lesion batches)")
+    ap.add_argument("--restore-lesions", action="store_true",
+                    help="when loading a snapshot, also re-apply the lesions it was saved with (off by default)")
     ap.add_argument("--no-persistence", action="store_true",
                     help="neither load nor save snapshot 'latest' (a fresh, naive brain: one experiment animal)")
     ap.add_argument("-v", "--verbose", action="store_true")

@@ -35,6 +35,7 @@ class Persistence:
     dir: str = ".local/brain/snapshots"
     load_on_start: bool = True
     save_on_exit: bool = True
+    restore_lesions: bool = False     # loading a snapshot re-applies its lesions only if true (warned)
 
     def path(self) -> Path:
         p = Path(self.dir)

@@ -414,16 +414,42 @@ class Brain:
     # ------------------------------------------------------------------ snapshots
 
     def snapshot(self) -> dict:
-        return {"format": 1, "controller": self.cfg.controller, "robot_ms": self.clock.ms,
-                "internal": {"hun": self.hun, "fear": self.fear},
+        """Everything the brain has learned or is in (5.11): learned weights with their labile and
+        stable parts and preferences (controller state), hunger, fear, the robot's habituation as last
+        reported, sleep state and active lesions. Format 1 snapshots (hunger, fear, weights) still load."""
+        return {"format": 2, "controller": self.cfg.controller, "seed": self.cfg.seed, "robot_ms": self.clock.ms,
+                "internal": {"hun": self.hun, "fear": self.fear, "hab": self.hab},
+                "sleep": {"asleep": self.asleep, "why": self.sleep_why, "armed": self.sleep_armed},
+                "lesions": sorted(self.lesions),
                 "controller_state": self.ctrl.state_dict()}
 
     def restore(self, data: dict) -> None:
-        self.hun = float(data["internal"]["hun"])
-        self.fear = float(data["internal"]["fear"])
+        internal = data["internal"]
+        self.hun = float(internal["hun"])
+        self.fear = float(internal["fear"])
+        self.hab = float(internal.get("hab", 0.0))
+        sl = data.get("sleep") or {}
+        self.asleep = bool(sl.get("asleep", False))
+        self.sleep_why = sl.get("why", "user") if sl.get("why") in ("dark", "light", "user") else "user"
+        self.sleep_armed = bool(sl.get("armed", True))
+        if self.asleep:
+            self.next_sleep_repeat = 0                       # tell the robot again at the next tick
         if data.get("controller") == self.cfg.controller:
             self.ctrl.load_state(data.get("controller_state", {}))
             self.weights_dirty = True
+        saved = [t for t in data.get("lesions", []) if isinstance(t, str)]
+        for t in sorted(self.lesions - set(saved)):          # the snapshot's lesion set, nothing else
+            self.set_lesion(t, False)
+        if saved and self.cfg.persistence.restore_lesions:
+            log.warning("restoring lesions from the snapshot: %s", ", ".join(saved))
+            for t in saved:
+                self.set_lesion(t, True)
+        elif saved:
+            log.info("snapshot had lesions %s; starting intact (persistence.restore_lesions is off)",
+                     ", ".join(saved))
+            for t in saved:
+                self.set_lesion(t, False)
+        self.status_dirty = True
 
     def save(self, name: str) -> bool:
         if self.snapshots is None:

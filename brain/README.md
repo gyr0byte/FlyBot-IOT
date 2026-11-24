@@ -581,6 +581,35 @@ obstacle, no odour). The logger (Phase 8) will store it with every `brain/state`
   drift as in the 5.6 control animals.
 - No lockstep timeouts in any of the 460 trials (150 seeking, 310 learning).
 
+## Save and restore (Phase 5, step 5.11)
+
+A snapshot (`.local/brain/snapshots/<name>.json`, format 2) holds everything the brain has learned
+or is in:
+- the learned KC → output weights, each with its **labile and stable** parts, and the learned
+  preferences (`pref`);
+- **hunger, fear** and the robot's **habituation** level as last reported;
+- the **sleep state** (asleep, why, and whether automatic sleep is armed);
+- the **active lesions**, and the base seed (for the record).
+
+It is written on demand (`brain/control` `save`) and on a clean shutdown (`latest`), and read on
+start-up and with `load`. Format 1 snapshots (weights, hunger and fear only) still load; the rest
+then starts from defaults.
+
+**Lesions are not restored by default.** A brain loading a snapshot starts intact and logs which
+lesions the snapshot had. Restoring them is an explicit option, `persistence.restore_lesions: true`
+or `--restore-lesions`, and the brain logs a warning when it does. Loading always replaces the
+current lesion set with the snapshot's (or with none).
+
+**Individuality.** Each brain build has its own seed (`--seed`): the Poisson inputs, noise and the
+motor layer's random choices follow from it, so two brains on the same circuit behave slightly
+differently, and the same seed reproduces the same behaviour exactly (with the batch method, see
+"Seeds" above). This is a feature, not noise to hide:
+- seeking success on the same scenario differs between base seeds 1 / 2 / 3: 82 / 84 / 80% on
+  `default`, 54 / 56 / 44% on `obstacles` (Neural vs baseline, above);
+- untrained animals start with their own preferences: across the 30 control animals of the 5.6
+  experiment, the pre-test preference index ranged from −1.0 to +0.75 (SD 0.42), from 0 to 7 of 8
+  approaches to the lit source.
+
 ## Circuit file format (version 1)
 
 Circuits are **data, not code** (plan, Phase 5 design rule). The network engine

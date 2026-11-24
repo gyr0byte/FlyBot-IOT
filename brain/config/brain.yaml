@@ -20,6 +20,7 @@ persistence:
   dir: .local/brain/snapshots   # relative to the repo root (git-ignored, on D:)
   load_on_start: true           # load snapshot "latest" at start-up if it exists
   save_on_exit: true            # save snapshot "latest" on a clean shutdown
+  restore_lesions: false        # true: loading a snapshot re-applies its lesions (logged as a warning)
 
 # Tuned in Phase 4 with lockstep batches (see brain/README.md, "Baseline results").
 baseline:                   # Braitenberg-style controller; see flybot_brain/controllers/baseline.py
