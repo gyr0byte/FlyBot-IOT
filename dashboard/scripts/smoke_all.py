@@ -57,6 +57,33 @@ def wait_port(port: int, seconds: float) -> bool:
     return False
 
 
+def run_browser(base_env: dict, captured: list, errors: list, want: set) -> None:
+    """Real headless Chromium (Playwright, browsers on D:): login, live panels, every control clicked,
+    smoothness, phone layout, history; then validate every message the browser tab published."""
+    env = {**base_env, "WEB_URL": WEB, "SCREEN_DIR": str(WORK),
+           "PLAYWRIGHT_BROWSERS_PATH": os.environ.get("PLAYWRIGHT_BROWSERS_PATH", r"D:\DevCache\ms-playwright")}
+    before = len(captured)
+    out = subprocess.run(["node", "scripts/browser_smoke.ts"], cwd=ROOT / "dashboard", capture_output=True, text=True,
+                         timeout=300, env=env)
+    line = next((l for l in out.stdout.splitlines() if l.startswith("{")), "{}")
+    rep = json.loads(line)
+    check("browser test ran", out.returncode == 0 and "error" not in rep, rep.get("error", out.stderr[-300:]))
+    for name, value in rep.get("checks", {}).items():
+        check(f"browser: {name}", value is not False, "" if value is True or value is False else str(value))
+    for e in rep.get("consoleErrors", [])[:5]:
+        print("    browser console:", e[:300])
+    time.sleep(1.0)
+    mine = [(n, m) for n, m, _ in captured[before:] if m.get("src") == rep.get("src")]
+    kinds = {(n, m.get("m") or m.get("c") or (("r" + str(m["r"])) if n == "reward" else None)
+              or (("s" + str(m["s"])) if n == "brain/sleep" else None)) for n, m in mine}
+    manual = sum(1 for n, _ in mine if n == "cmd/manual")
+    check("browser: every control published and contract-valid", want <= kinds and not errors,
+          f"{len(mine)} messages from {rep.get('src')}, {manual} cmd/manual" if want <= kinds
+          else f"missing {sorted(map(str, want - kinds))}")
+    if rep.get("screenshots"):
+        print("screenshots:", ", ".join(str(WORK / s) for s in rep["screenshots"]))
+
+
 def main() -> int:
     WORK.mkdir(parents=True, exist_ok=True)
     db = WORK / "flybot.db"
@@ -111,7 +138,7 @@ def main() -> int:
         sp = str(ROOT / "sim" / ".venv" / "Scripts" / "python.exe")
         start("brain", [bp, "-B", "-m", "flybot_brain", "--controller", "neural", "--no-persistence"], ROOT / "brain")
         start("api", [bp, "-B", "-m", "flybot_brain.logger", "--db", str(db), "api", "--port", str(API_PORT)], ROOT / "brain")
-        start("sim", [sp, "-B", "-m", "flybot_sim", "batch", "--realtime", "--trials", "1", "--duration", "150",
+        start("sim", [sp, "-B", "-m", "flybot_sim", "batch", "--realtime", "--trials", "60", "--duration", "150",
                       "--scenario", "default", "--out", str(WORK / "sim.csv")], ROOT / "sim")
         start("web", f"npx next start -p {WEB_PORT}", ROOT / "dashboard", {"LOGGER_API_URL": f"http://127.0.0.1:{API_PORT}"})
         check("logger API up", wait_port(API_PORT, 20))
@@ -129,6 +156,8 @@ def main() -> int:
             check("wrong password refused", "error=1" in r.headers.get("location", "") and "flybot_session" not in r.cookies)
             r = h.post("/api/login", data={"password": password})
             check("right password signs in", r.status_code == 303 and "flybot_session" in h.cookies)
+            check("redirects stay on the browser's host (relative Location)",
+                  r.headers.get("location") == "/", r.headers.get("location", ""))
             check("live page served", h.get("/").status_code == 200)
             check("history page served", h.get("/history").status_code == 200)
             cfg = h.get("/api/mqtt-config").json()
@@ -185,6 +214,9 @@ def main() -> int:
                 ok_seq = False
             seqs[n] = m["seq"]
         check("per-topic seq counts from 0 without gaps", ok_seq and all(n in seqs for n, _ in want))
+
+        if "--browser" in sys.argv:
+            run_browser(base_env, captured, errors, want)
     finally:
         v.loop_stop()
         v.disconnect()

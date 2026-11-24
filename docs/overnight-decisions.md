@@ -103,3 +103,21 @@ on D:.
     it starts only when a real-looking token and a chat ID are set, so the brain runs unchanged
     without them; `--no-bot` and the experiment tools switch it off.
 
+
+## Verification
+
+20. **A real-browser test after all (Playwright).** I had first skipped it (decision 11). With
+    time left, I added Playwright as a dashboard dev dependency with its browser downloaded to
+    `D:\DevCache\ms-playwright` (`PLAYWRIGHT_BROWSERS_PATH`); nothing went to the default location on
+    C:. `smoke_all.py --browser` drives headless Chromium through the dashboard (see
+    dashboard/README.md). Why: the plan's Phase 9 done-when is about the page itself ("every panel
+    updates, every control works, stays smooth"), which the Node test could not show.
+
+21. **Two dashboard bugs found by the browser test, fixed.** (a) After login the browser was
+    redirected from the address it used (here 127.0.0.1) to `localhost`, because redirect URLs were
+    built from `req.url`; the session cookie then did not apply. On the cloud VM every user would
+    have been sent to `localhost`. Now login / logout answer with relative `Location` headers and the
+    login guard builds its URL from the request's `Host` (or `X-Forwarded-Host`). (b) A React
+    hydration mismatch (error #418): the live page rendered nothing on the server and everything in
+    the browser; it now renders the same placeholder first. Also: chart lines at 0 or full scale sat
+    on the canvas edge and were invisible; the charts now have 6 px of vertical padding.

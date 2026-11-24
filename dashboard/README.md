@@ -61,4 +61,16 @@ in real time and the built dashboard (port 3100), then checks the login flow and
 over HTTP, and runs `scripts/smoke.ts` (Node, the dashboard's own contract module over WebSockets):
 live data must arrive, and every control is published; an independent subscriber validates each
 message against the contract schemas, and the brain must acknowledge every `brain/control` command.
-Last run: 21/21 checks passed.
+With `--browser` it also drives a real headless Chromium through the dashboard
+(`scripts/browser_smoke.ts`, Playwright; browsers downloaded to `PLAYWRIGHT_BROWSERS_PATH`, default
+`D:\DevCache\ms-playwright`): login (and a wrong password), every overview panel filling with live
+values, messages and charts updating, spike bars and heat maps drawn, every control clicked (drive
+pad dragged, lesion switch following `brain/state.les`, the brain's acknowledgement shown), frame
+rate over 15 s of live updates, no sideways scrolling at phone width, the history page; and the
+orchestrator validates every message the browser tab published. Screenshots go to `.tmp\smoke\`.
+
+```powershell
+$env:PLAYWRIGHT_BROWSERS_PATH = "D:\DevCache\ms-playwright"
+cd dashboard; npx playwright install chromium; cd ..     # once
+brain\.venv\Scripts\python dashboard\scripts\smoke_all.py --browser
+```

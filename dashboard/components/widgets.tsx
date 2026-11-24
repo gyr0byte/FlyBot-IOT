@@ -35,7 +35,8 @@ export function LineChart({ title, getData, series, yMin, yMax, unit = "", windo
           const v = p[s.key] as number | null;
           if (v === null || v === undefined) { started = false; continue; }
           const x = w - ((now - p.t) / windowMs) * w;
-          const y = h - ((Math.min(yMax, Math.max(yMin, v)) - yMin) / (yMax - yMin)) * h;
+          const pad = 6;                                   // keep lines at 0 and at full scale visible
+          const y = pad + (1 - (Math.min(yMax, Math.max(yMin, v)) - yMin) / (yMax - yMin)) * (h - 2 * pad);
           if (!started) { g.moveTo(x, y); started = true; } else g.lineTo(x, y);
         }
         g.stroke();

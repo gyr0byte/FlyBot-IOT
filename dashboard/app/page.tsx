@@ -11,7 +11,9 @@ const STATE_TONE: Record<string, "ok" | "warn" | "bad"> = { cloud: "ok", manual:
 
 export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);        // same first render on server and client (hydration)
   useEffect(() => {
+    setMounted(true);
     if (!live) return;
     fetch("/api/mqtt-config", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`config ${r.status}`))))
@@ -21,7 +23,8 @@ export default function Dashboard() {
   }, []);
   useSyncExternalStore(live?.subscribe ?? (() => () => {}), live?.getVersion ?? (() => 0), () => 0);
   const sensors = useCallback(() => live?.sensors ?? [], []);
-  if (!live) return null;
+  if (!mounted || !live) return <main className="page"><header className="top"><h1>FlyBot</h1></header>
+    <p className="muted">Connecting…</p></main>;
   const st = live.status as J | null, bs = live.brainStatus as J | null, s = live.brainState as J | null;
   const w = live.weights as J | null, sn = live.lastSensors as J | null;
   const robotOnline = !!st && st.st !== "offline";
