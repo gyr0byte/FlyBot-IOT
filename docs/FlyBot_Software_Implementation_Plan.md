@@ -331,6 +331,11 @@ Build the network one layer at a time and test each layer in the simulator befor
 Rebuild the small circuit in Brian2 and confirm it behaves like your NumPy version. This gives a credible check and good figures for the report.
 
 ### Step 5.13 – Connectome-derived learning circuit
+
+> **Note (from step 5.12):** in the circuit format, `t_ref_ms` is the number of steps a neuron is held
+> after its spike step, so the effective refractory period is `t_ref_ms + 1` ms. Refractory periods
+> taken from the literature must have 1 ms subtracted when entered (see brain/README.md, circuit
+> file format).
 Replace the **designed** antennal lobe → mushroom body → output/dopamine wiring with **real neurons and connections from the FlyWire connectome**, for one brain hemisphere. Because of the design rule above, this is a new set of circuit files plus a converter; the engine does not change.
 
 - **What comes from the connectome (FlyWire):**

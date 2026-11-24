@@ -610,6 +610,54 @@ differently, and the same seed reproduces the same behaviour exactly (with the b
   experiment, the pre-test preference index ranged from −1.0 to +0.75 (SD 0.42), from 0 to 7 of 8
   approaches to the lit source.
 
+## Brian2 check (Phase 5, step 5.12)
+
+An independent rebuild of the designed circuit's receptor → antennal lobe → mushroom body path in
+Brian2 2.10.1 (`analysis/brian2/`, analysis venv on D:, numpy code target), compared with FlyBot's
+engine. The output and dopamine neurons are left out; nothing feeds back from them into this path.
+- **How:** `engine_rates.py` (brain venv) runs the engine; `brian2_rates.py` (analysis venv) reads the
+  circuit files itself (`groups.csv`, `connections.csv`, `manifest.yaml`) and writes the engine's
+  model as Brian2 equations in the same update order: each step the synaptic current decays, then
+  v is updated by Euler and checked against threshold; a spike reaches its targets so that it acts
+  one step later, as in the engine.
+- **Cases:** weak odour in the dark, odour mostly on the left, strong odour under the lamp, lamp only.
+  10 seeds × 5 s each, in both simulators.
+- **Pass criterion (fixed in advance):** every group's mean rate within 10% of the engine's; groups
+  below 1 Hz within 0.1 Hz.
+
+**Finding: the refractory convention.** With Brian2's refractory set to `t_ref_ms`, inputs and
+projection neurons matched but the fast local neurons fired 10–22% faster in Brian2. The engine
+holds a neuron for `t_ref_ms` steps *after* its spike step, so its effective refractory period is
+one step longer than the parameter suggests. With Brian2's refractory set to `t_ref_ms + 1` ms, the
+two agree. The engine was kept as it is and the convention is documented in the format spec below
+(approved).
+
+**Result** (refractory `t_ref_ms + 1` ms in Brian2), mean rates over 10 seeds:
+
+| Case | Group | Engine | Brian2 | Difference |
+|---|---|---|---|---|
+| odour left, dark | PN left / right | 53.95 / 19.61 Hz | 54.06 / 19.51 Hz | +0.2% / −0.5% |
+| | LN left / right | 109.16 / 76.11 Hz | 109.03 / 76.27 Hz | −0.1% / +0.2% |
+| | APL | 10.74 Hz | 10.58 Hz | −1.5% |
+| | KC active at least once | 7.4% | 7.4% | |
+| strong odour, lamp | LN left / right | 173.79 / 173.92 Hz | 173.79 / 174.24 Hz | 0.0% / +0.2% |
+| | APL | 132.70 Hz | 133.16 Hz | +0.3% |
+| | KC active at least once | 14.7% | 14.5% | |
+| lamp only | APL | 56.56 Hz | 57.34 Hz | +1.4% |
+| weak odour, dark | **LN right** | **1.10 Hz** | **0.86 Hz** | **−22% (fails)** |
+
+35 of 36 group comparisons pass. Receptor and light inputs agree within 0.5%; with moderate and
+strong odour every group agrees within 1.5%; under the weakest odour the left projection neurons
+differ by +5.2% (within the criterion), and the right local neurons are the exception below. The full tables are in `.local/experiments/brian2/report.md`
+(regenerate with the two scripts).
+
+**The one exception:** the right local neurons under the weakest odour (0.05 / 0.02) fire at
+1.10 Hz in the engine and 0.86 Hz in Brian2. That is about 6 standard errors (engine seed-to-seed
+SD 0.13 Hz), so it is systematic, not noise. It is confined to a group driven just at threshold;
+in the same case the neurons it inhibits (PN right, 0.59 vs 0.55 Hz) and the Kenyon cells match.
+Its cause is not explained; near threshold, tiny differences in how the two simulators order
+updates within a step can change whether a spike happens.
+
 ## Circuit file format (version 1)
 
 Circuits are **data, not code** (plan, Phase 5 design rule). The network engine
@@ -672,6 +720,13 @@ modulation: modulation.csv           # optional
   receive connections.
 - **Neuron model:** leaky integrate-and-fire on a dimensionless voltage (rest 0), with an exponential
   synaptic current and 1 ms steps.
+- **`t_ref_ms` is the number of 1 ms steps a neuron is held at reset *after* the step in which it
+  spiked.** The effective refractory period in the usual sense (spike step included) is therefore
+  `t_ref_ms + 1` ms, and the shortest interval between two spikes is `t_ref_ms + 1` ms: the designed
+  circuit's `t_ref_ms: 2` caps a neuron at 333 Hz. `tests/test_refractory.py` pins this. The Brian2
+  check (step 5.12) found it; the engine was kept as it is and the convention documented (approved).
+  **For step 5.13:** refractory periods taken from the literature (or any other simulator) must have
+  1 ms subtracted when entered as `t_ref_ms`.
 - **`side`:** `L`, `R` or `-`.
 - **`spk_key`:** must be a contract `brain/state.spk` key. Several groups may share one; they are summed.
 - **`lesion_target`:** a contract lesion target (used in step 5.10).
