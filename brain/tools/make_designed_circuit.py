@@ -56,12 +56,14 @@ W_KC_MBON = 1.0                    # initial = maximum: learning only depresses
 # pairings and pinned the valence at -1 for every odour (see brain/README.md, "Learning").
 PLASTICITY = {"rule": "three_factor", "lr": 0.001, "tau_elig_ms": 2500.0, "w_min": 0.0, "w_max": 1.0,
               "eligibility": "saturate"}
+# The earlier rule, kept reproducible for comparison runs (--rule accumulate; not the committed circuit).
+PLASTICITY_ACCUMULATE = {**PLASTICITY, "lr": 0.0003, "eligibility": "accumulate"}
 DAN_IN_GAIN_HZ = 200.0             # reward / punish input rate while a pulse is on
 SCALE_OUT = {"kc_mbon": 1.0, "dan_in": 0.15}      # DANs ~50 Hz during a reward pulse
 LIF_APL = dict(LIF_PN, tau_m_ms=10, bias=0.0)
 
 
-def generate(out: Path, seed: int = 1):
+def generate(out: Path, seed: int = 1, plasticity: dict = PLASTICITY):
     rng = np.random.default_rng(seed)
     groups = []
     for side, s in (("l", "L"), ("r", "R")):
@@ -138,9 +140,9 @@ def generate(out: Path, seed: int = 1):
         {"name": "kc_apl", "pre": "kc", "post": "apl", "scale": SCALE_MB["kc_apl"]},
         {"name": "apl_kc", "pre": "apl", "post": "kc", "scale": SCALE_MB["apl_kc"]},
         {"name": "kc_ma", "pre": "kc", "post": "ma", "scale": SCALE_OUT["kc_mbon"], "plastic": True,
-         "plasticity": dict(PLASTICITY)},
+         "plasticity": dict(plasticity)},
         {"name": "kc_mv", "pre": "kc", "post": "mv", "scale": SCALE_OUT["kc_mbon"], "plastic": True,
-         "plasticity": dict(PLASTICITY)},
+         "plasticity": dict(plasticity)},
         {"name": "rwd_dp", "pre": "rwd", "post": "dp", "scale": SCALE_OUT["dan_in"]},
         {"name": "pun_dn", "pre": "pun", "post": "dn", "scale": SCALE_OUT["dan_in"]},
     ]
@@ -170,8 +172,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default=str(REPO / "brain" / "circuits" / "designed"))
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--rule", choices=["saturate", "accumulate"], default="saturate",
+                    help="KC->MBON eligibility rule (accumulate = the earlier rule, for comparison runs only)")
     a = ap.parse_args()
-    c = generate(Path(a.out), a.seed)
+    c = generate(Path(a.out), a.seed, PLASTICITY if a.rule == "saturate" else PLASTICITY_ACCUMULATE)
     print(f"wrote {a.out}: {c.n_neurons} neurons, {c.n_connections} connections, "
           f"{len(c.projections)} projections")
     return 0

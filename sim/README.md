@@ -76,7 +76,31 @@ an error. It can set:
 - `seed` and `duration_s`;
 - every sensor or robot parameter, and `edge:` overrides for any firmware constant.
 
-Bundled: `default`, `obstacles`, `two_sources` (strong target plus a weak decoy) and `night`.
+Bundled: `default`, `obstacles`, `two_sources` (strong target plus a weak decoy), `night` and
+`learning`.
+
+**Learning experiments** (plan step 5.6) use four more scenario keys:
+- `light.patches`: lamps `{x, y, r, level, edge_m}`. Inside radius `r` the light is `level`; it
+  fades to the ambient level over `edge_m`. The LDR reads the light at the robot's position.
+- `sources[].label` names a source (`lit`, `dark`). `goal: any` ends a trial at whichever source
+  the robot reaches first, and records its label.
+- `experiment.phases`: each phase has `name`, `trials` and optional `rewards: {label: +1 | -1}`.
+  Arriving at a rewarded source makes the simulator press the training button: `reward` with
+  `src: btn` and the robot's `bid`. The press comes `reward_delay_s` after arrival, and the trial
+  keeps running for `hold_after_reward_s` after it, so the brain can pair the reward with what it
+  senses.
+- A phase's starts can be relative to a labelled source: `relative_to: lit` with
+  `relative_starts: [{dx, dy, heading_deg}]`. They are written for a source on the left and
+  mirrored when the source is on the right. `check_training_starts()` verifies that every such
+  start is nearer its own source than any other.
+
+`scenarios/learning.yaml` is a dark arena with two equal odour sources and a lamp over the left
+one. It runs pre-test 8 trials from the midline, training 15 trials started near the lit source,
+and post-test 8 trials.
+
+`tools/learning_experiment.py` runs whole experiments: conditions × animals, a fresh brain process
+per animal, and every odd animal in the mirrored arena. See [brain/README.md](../brain/README.md#learning-phase-5-steps-55-56)
+for the design and results.
 
 **Batch trials:** each trial is a fresh robot boot. Its seed is the scenario seed plus the trial
 number, and the start positions rotate, so any single trial can be reproduced.
