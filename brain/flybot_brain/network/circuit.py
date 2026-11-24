@@ -6,6 +6,8 @@ A circuit is a folder:
   connections.csv   one row per connection: projection, pre, post, weight, type
   neurons.csv       optional: one row per neuron (group, index, external id, cell type, compartment)
   modulation.csv    optional: which modulator neurons gate which plastic synapses
+  (manifest) state_modulation, optional: how internal states (hunger, fear) scale a projection's
+                    gain or shift a group's bias at run time
   NOTICE            data-derived circuits: licence and required citations
 The engine (engine.py) knows nothing about any particular circuit. The full specification is in
 brain/README.md ("Circuit file format"). load_circuit() validates everything and raises
@@ -27,6 +29,8 @@ TYPES = {"exc": 1, "inh": -1, "mod": 0}
 RULES = ("three_factor",)
 ELIGIBILITY = ("accumulate", "saturate")   # +1 per presynaptic spike, or set to 1 (a saturating tag)
 ENCODINGS = ("poisson_rate",)
+STATES = ("hunger", "fear")                # internal states a circuit may couple to (step 5.7)
+STATE_KINDS = ("gain", "bias")
 SIDES = ("L", "R", "-")
 # The contract's brain/state.spk keys and brain/control lesion targets (contract 3.10, 3.12).
 SPK_KEYS = ("rl", "rr", "pl", "pr", "ln", "kc", "apl", "ma", "mv", "dp", "dn")
@@ -98,6 +102,15 @@ class ModulationRow:
 
 
 @dataclass
+class StateModulation:
+    """gain: projection scale x (1 + k * state); bias: group bias + k * state (state 0..1)."""
+    state: str
+    kind: str
+    target: str          # projection name (gain) or group name (bias)
+    k: float
+
+
+@dataclass
 class Circuit:
     path: Path
     name: str
@@ -108,6 +121,7 @@ class Circuit:
     outputs: dict[str, list[str]]
     neurons: list[dict] | None
     modulation: list[ModulationRow]
+    state_modulation: list[StateModulation] = field(default_factory=list)
 
     @property
     def n_neurons(self) -> int:
@@ -172,7 +186,7 @@ def load_circuit(path: str | Path) -> Circuit:
         if key not in m:
             _fail("manifest.yaml", f"missing key {key!r}")
     known = {"format", "name", "description", "source", "generator", "designed_parts", "inputs", "outputs",
-             "projections", "neurons", "modulation"}
+             "projections", "neurons", "modulation", "state_modulation"}
     if set(m) - known:
         _fail("manifest.yaml", f"unknown keys {sorted(set(m) - known)}")
 
@@ -185,7 +199,43 @@ def load_circuit(path: str | Path) -> Circuit:
     neurons = _load_neurons(path / m["neurons"], groups) if m.get("neurons") else None
     modulation = (_load_modulation(path / m["modulation"], groups, projections, neurons)
                   if m.get("modulation") else [])
-    return Circuit(path, str(m["name"]), m, groups, projections, inputs, outputs, neurons, modulation)
+    state_mod = _load_state_modulation(m.get("state_modulation") or [], groups, projections)
+    return Circuit(path, str(m["name"]), m, groups, projections, inputs, outputs, neurons, modulation, state_mod)
+
+
+def _load_state_modulation(specs, groups, projections) -> list[StateModulation]:
+    if not isinstance(specs, list):
+        _fail("manifest.yaml state_modulation", "must be a list")
+    out = []
+    for i, spec in enumerate(specs):
+        where = f"manifest.yaml state_modulation[{i}]"
+        if not isinstance(spec, dict):
+            _fail(where, "must be a mapping")
+        kind = spec.get("kind")
+        target_key = {"gain": "projection", "bias": "group"}.get(kind)
+        if target_key is None:
+            _fail(where, f"kind must be one of {STATE_KINDS}, got {kind!r}")
+        allowed = {"state", "kind", "k", target_key}
+        if set(spec) != allowed:
+            _fail(where, f"keys must be {sorted(allowed)} for kind {kind!r} (got {sorted(spec)})")
+        if spec["state"] not in STATES:
+            _fail(where, f"state must be one of {STATES}, got {spec['state']!r}")
+        k = spec["k"]
+        if isinstance(k, bool) or not isinstance(k, (int, float)) or not math.isfinite(k):
+            _fail(where, f"k must be a finite number, got {k!r}")
+        target = spec[target_key]
+        if kind == "gain":
+            if target not in projections:
+                _fail(where, f"unknown projection {target!r}")
+            if projections[target].plastic:
+                _fail(where, f"projection {target!r} is plastic: gain modulation is for fixed projections")
+        else:
+            if target not in groups:
+                _fail(where, f"unknown group {target!r}")
+            if groups[target].model != "lif":
+                _fail(where, f"group {target!r} is not lif: bias modulation needs LIF neurons")
+        out.append(StateModulation(spec["state"], kind, target, float(k)))
+    return out
 
 
 def _load_groups(path: Path) -> dict[str, Group]:

@@ -59,6 +59,25 @@ PLASTICITY = {"rule": "three_factor", "lr": 0.001, "tau_elig_ms": 2500.0, "w_min
 # The earlier rule, kept reproducible for comparison runs (--rule accumulate; not the committed circuit).
 PLASTICITY_ACCUMULATE = {**PLASTICITY, "lr": 0.0003, "eligibility": "accumulate"}
 DAN_IN_GAIN_HZ = 200.0             # reward / punish input rate while a pulse is on
+
+# Internal states (5.7): how hunger and fear modulate the circuit (state 0..1). Chosen by criteria
+# fixed before any behaviour was measured:
+# - hunger raises receptor -> PN gain (hunger signals boost olfactory input in flies): k such that
+#   hunger = 1 raises the PN response to a weak odour (0.05) by ~50%; measured +53% at k = 0.15;
+# - fear raises avoid-MBON excitability, hunger approach-MBON excitability (mirror image, so they
+#   meet on the same valence), as a SUBTHRESHOLD bias. The target was an untrained mid-odour valence
+#   of -0.5 at fear = 1. Not reachable: the largest subthreshold bias (0.8) gives -0.32, and the
+#   nearer to threshold, the more the output neurons fire on the faint light-driven KC background of
+#   the dark arena without odour (hunger = fear = 1, worst of 10 seeds, per neuron: 0.14 Hz per
+#   group at 0.4, 0.28 at 0.6, 0.74 at 0.8; 0.06 Hz without states). 0.6 was chosen (approved):
+#   valence -0.25 at fear = 1, approach + avoid at most 0.54 Hz without odour, well below the
+#   controller's 2 Hz valence gate. tests/test_states.py guards it.
+STATE_MODULATION = [
+    {"state": "hunger", "kind": "gain", "projection": "rl_pl", "k": 0.15},
+    {"state": "hunger", "kind": "gain", "projection": "rr_pr", "k": 0.15},
+    {"state": "hunger", "kind": "bias", "group": "ma", "k": 0.6},
+    {"state": "fear", "kind": "bias", "group": "mv", "k": 0.6},
+]
 SCALE_OUT = {"kc_mbon": 1.0, "dan_in": 0.15}      # DANs ~50 Hz during a reward pulse
 LIF_APL = dict(LIF_PN, tau_m_ms=10, bias=0.0)
 
@@ -151,7 +170,8 @@ def generate(out: Path, seed: int = 1, plasticity: dict = PLASTICITY):
         "description": ("Designed circuit: olfactory front end (steps 5.2-5.3: rate-coded receptors, projection "
                         "neurons per side, cross-lateral inhibition), mushroom body (5.5: Kenyon cells with "
                         "sparse PN and light input, APL feedback inhibition) and outputs (5.6: approach / avoid "
-                        "MBONs with plastic KC synapses, reward / punishment DANs)."),
+                        "MBONs with plastic KC synapses, reward / punishment DANs), internal states (5.7: "
+                        "hunger and fear modulate gains and biases)."),
         "source": {"kind": "designed"},
         "generator": {"script": "brain/tools/make_designed_circuit.py", "seed": seed},
         "designed_parts": "All of it. Sizes, wiring and weights are design choices, not connectome data.",
@@ -164,6 +184,7 @@ def generate(out: Path, seed: int = 1, plasticity: dict = PLASTICITY):
         },
         "outputs": {"steer_left": ["pl"], "steer_right": ["pr"], "approach": ["ma"], "avoid": ["mv"]},
         "projections": projections,
+        "state_modulation": [dict(sm) for sm in STATE_MODULATION],
     }
     return write_circuit(out, manifest, groups, conns, modulation=modulation)
 

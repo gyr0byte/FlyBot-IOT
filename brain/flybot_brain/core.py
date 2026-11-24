@@ -18,6 +18,7 @@ Contract rules implemented here:
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections import deque
@@ -57,8 +58,8 @@ class Brain:
         self.asleep = False
         self.sleep_why = "user"
         self.next_sleep_repeat = 0
-        self.hun = 0.0                          # internal states: Phase 5.7
-        self.fear = 0.0
+        self.hun = cfg.states.hunger_start      # internal states (5.7): robot-time dynamics here,
+        self.fear = 0.0                         # their effect on the network is circuit data
 
         self.last_sensors_wall: float | None = None
         self.sens = "none"
@@ -77,7 +78,7 @@ class Brain:
         self.next_status_wall = 0.0
         self.tick_log: deque = deque()          # (wall, compute ms)
         self.counters = {"ticks": 0, "commands": 0, "dropped": 0, "reboots": 0, "gaps": 0, "resets": 0,
-                         "invalid": 0, "rewards": 0, "weights_published": 0}
+                         "invalid": 0, "rewards": 0, "weights_published": 0, "escapes": 0}
 
     # ------------------------------------------------------------------ helpers
 
@@ -112,9 +113,7 @@ class Brain:
                 self.hab = float(msg["hab"])             # mirrored into brain/state.hab (revision 8)
             return []
         if name == "events":
-            if msg.get("e") == "escape":
-                self.hab = float(msg["hab"])
-            return []
+            return self._on_event(msg)
         return []
 
     def pong(self, msg: dict) -> Out:
@@ -143,6 +142,7 @@ class Brain:
         t = self.clock.advance(msg["up"], msg["bid"])        # a bid change is a reboot (revision 6)
         if self.clock.rebooted or restarted:
             self._on_robot_reboot()
+        self._advance_states(self.clock.step)
         if self.clock.gaps > self.counters["gaps"]:
             self.counters["gaps"] = self.clock.gaps          # recorded (7.1 (4)); step was capped
             log.info("sensor data gap: integrated only %d ms", self.clock.step)
@@ -164,12 +164,15 @@ class Brain:
                 outs.append(self._out("cmd/sleep", s=True, why=self.sleep_why))
                 self.next_sleep_repeat = t + self.cfg.timing.sleep_repeat_ms
         else:
-            d = self.ctrl.step(Inputs(msg["ol"], msg["or"], msg["d"], msg["lt"], msg["bat"], self.clock.step, t))
+            d = self.ctrl.step(Inputs(msg["ol"], msg["or"], msg["d"], msg["lt"], msg["bat"], self.clock.step, t,
+                                      hun=self.hun, fear=self.fear))
             outs.append(self._out("cmd/motor", l=_clamp(d.l), r=_clamp(d.r), ttl=self.cfg.timing.ttl_ms,
                                   rs=msg["seq"]))
             self.counters["commands"] += 1
             dec, why = d.dec, d.why
         self.dec, self.why = dec, why[:3]
+        if dec == "eat":
+            self.hun = 0.0                                   # eating at a source resets hunger
 
         if t >= self.next_state_ms:
             outs.append(self._state())
@@ -178,6 +181,25 @@ class Brain:
         self.counters["ticks"] += 1
         self.tick_log.append((now, (time.perf_counter() - t_start) * 1000.0))
         return outs
+
+    def _advance_states(self, dt_ms: int) -> None:
+        """Hunger rises and fear decays with robot time (5.7)."""
+        if dt_ms <= 0:
+            return
+        st = self.cfg.states
+        if st.hunger_rise_s > 0:
+            self.hun = min(1.0, self.hun + dt_ms / (st.hunger_rise_s * 1000.0))
+        if st.fear_tau_s > 0:
+            self.fear *= math.exp(-dt_ms / (st.fear_tau_s * 1000.0))
+
+    def _on_event(self, msg: dict) -> list[Out]:
+        if not self.streams.accept(("events",), msg["seq"], msg["up"], self._now_ms(), bid=msg.get("bid")):
+            return []                                    # duplicate or late
+        if msg["e"] == "escape":
+            self.hab = float(msg["hab"])
+            self.fear = min(1.0, self.fear + self.cfg.states.fear_jump * float(msg["resp"]))
+            self.counters["escapes"] += 1
+        return []
 
     def _on_robot_reboot(self) -> None:
         """Robot time stepped 0 and the seq stream restarted (7.1 (3)). State carries on unless
@@ -194,7 +216,7 @@ class Brain:
     def _reset_internal(self, what: str, seed: int | None = None) -> None:
         if what in ("state", "all"):
             self.ctrl.reset(seed)
-            self.hun = self.fear = 0.0
+            self.hun, self.fear = self.cfg.states.hunger_start, 0.0
         if what in ("weights", "all"):
             self.ctrl.reset_learning()
             self.weights_dirty = True

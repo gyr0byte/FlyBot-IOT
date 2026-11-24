@@ -155,6 +155,7 @@ class NeuralController(Controller):
     def step(self, inp: Inputs) -> Decision:
         p, t = self.p, inp.t_ms
         net = self.net
+        net.set_states(hunger=inp.hun, fear=inp.fear)          # circuit state_modulation (5.7)
         net.set_input("odour_left", inp.ol)
         net.set_input("odour_right", inp.orr)
         if self.has_light:
@@ -224,6 +225,7 @@ class NeuralController(Controller):
             turn = p.turn_gain * c * confidence * self.drive
             strength = min(1.0, total / p.speed_full_hz)
             fwd = (p.speed_far + (p.speed_near - p.speed_far) * strength) * slow
+            fwd *= min(1.0, max(p.speed_drive_min, self.drive))   # low drive (fear, punishment): slower
             side = "pn_left" if c > 0 else "pn_right" if c < 0 else "pn"
             dec = "avoid" if self.drive < 0 else "approach" if learned == ["learned_approach"] else "seek"
             why = learned + [side] + (["obstacle"] if slow < 1.0 else [])

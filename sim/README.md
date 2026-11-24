@@ -78,10 +78,16 @@ an error. It can set:
   the **first source is the target** that counts as "reached" within `success_radius_m`;
 - plume patchiness, light (`day`, levels, `ldr_fitted`) and `start_positions`;
 - `seed` and `duration_s`;
-- every sensor or robot parameter, and `edge:` overrides for any firmware constant.
+- every sensor or robot parameter, and `edge:` overrides for any firmware constant;
+- `threats: [{x, y, radius_m, every_s, first_s}]`: recurring looming threats. While the robot is
+  within `radius_m` of (x, y), a looming object is thrown at it `first_s` after it enters and then
+  every `every_s` (as with the live view's `L` key). Results record `threats` launched and
+  `min_source_dist_m`, the closest approach to the target. A looming object that reaches the robot
+  also counts as a collision.
 
-Bundled: `default`, `obstacles`, `two_sources` (strong target plus a weak decoy), `night` and
-`learning`.
+Bundled: `default`, `obstacles`, `two_sources` (strong target plus a weak decoy), `night`,
+`learning` and `threat` (one source guarded by a looming threat, habituation off; used by
+`tools/state_experiment.py`).
 
 **Learning experiments** (plan step 5.6) use four more scenario keys:
 - `light.patches`: lamps `{x, y, r, level, edge_m}`. Inside radius `r` the light is `level`; it

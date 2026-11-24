@@ -93,11 +93,13 @@ class Monitor:
             return dict((self.state or {}).get("pref") or {}), self.weights
 
 
-def start_brain(seed: int, logfile: Path, monitor: Monitor, config: str | None) -> subprocess.Popen:
+def start_brain(seed: int, logfile: Path, monitor: Monitor, config: str | None,
+                extra: list[str] | None = None) -> subprocess.Popen:
     env = {**os.environ, "PYTHONPYCACHEPREFIX": os.environ.get("PYTHONPYCACHEPREFIX", r"D:\Tools\cache\pycache")}
     cmd = [str(BRAIN_PY), "-B", "-m", "flybot_brain", "--controller", "neural", "--no-persistence", "--seed", str(seed)]
     if config:
         cmd += ["--config", str(Path(config).resolve())]
+    cmd += extra or []
     t0 = time.monotonic()
     f = logfile.open("w", encoding="utf-8")
     p = subprocess.Popen(cmd, cwd=REPO / "brain", stdout=f, stderr=subprocess.STDOUT, env=env)

@@ -60,5 +60,13 @@ neural:                     # neural controller; see flybot_brain/controllers/ne
   drive_min: -1.0           # -1: steer away from a punished odour as strongly as it was approached
   drive_max: 1.5
   reward_pulse_ms: 300      # a reward message drives the reward / punish DANs this long
+  speed_drive_min: 0.4      # seek speed x clip(drive, 0.4, 1): fear lowers the valence, the drive and the speed
   forget_tau_s: 0           # forgetting: learned weights relax back with this time constant (0 = off)
   pref_alpha: 0.05          # EMA per tick of the valence reported in brain/state.pref
+
+# Internal states (5.7). How they act on the network is circuit data (manifest state_modulation).
+states:
+  hunger_rise_s: 600        # hunger rises 0 -> 1 over 10 min of robot time; eating resets it to 0
+  hunger_start: 0.0         # at start-up and after a state reset (experiments set fed / hungry here)
+  fear_jump: 0.5            # each looming escape adds 0.5 x its strength (events escape.resp)
+  fear_tau_s: 20            # fear decays with this time constant

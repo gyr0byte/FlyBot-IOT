@@ -1,0 +1,26 @@
+# Hunger vs fear (plan step 5.7): one odour source guarded by a recurring looming threat.
+# While the robot is within 0.5 m of the source, a looming object is thrown at it every 4 s
+# (first one 0.5 s after it enters). Daylight, no obstacles. sim/tools/state_experiment.py runs it
+# with and without the threat, for fed and hungry brains.
+#
+# Habituation is OFF (edge override): repeated threats must not habituate and confound hunger vs
+# fear. This must stay so whenever this experiment is re-run (the experiment tool checks it).
+name: threat
+seed: 500
+duration_s: 60
+success_radius_m: 0.15
+
+sources:
+  - {x: 1.60, y: 1.60, strength: 1.0, spread_m: 0.35}
+
+threats:
+  - {x: 1.60, y: 1.60, radius_m: 0.50, every_s: 4.0, first_s: 0.5}
+
+edge:
+  hab_enabled: false
+
+start_positions:
+  - {x: 0.30, y: 0.30, heading_deg: 45}
+  - {x: 0.30, y: 1.70, heading_deg: -45}
+  - {x: 1.70, y: 0.30, heading_deg: 135}
+  - {x: 1.00, y: 0.25, heading_deg: 90}

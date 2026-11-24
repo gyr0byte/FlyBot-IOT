@@ -65,6 +65,16 @@ class Motor:
 
 
 @dataclass
+class States:
+    """Internal states (plan step 5.7). Their dynamics live here; how they modulate the network is
+    circuit data (manifest state_modulation)."""
+    hunger_rise_s: float = 600.0    # hunger rises 0 -> 1 over this much robot time; eating resets it
+    hunger_start: float = 0.0       # hunger at start-up and after a state reset (experiments: fed / hungry)
+    fear_jump: float = 0.5          # each escape event adds fear_jump x its strength (resp)
+    fear_tau_s: float = 20.0        # fear decays with this time constant (robot time)
+
+
+@dataclass
 class Neural:
     """Neural controller: which circuit, and how projection-neuron activity is read out."""
     circuit: str = "brain/circuits/designed"   # circuit folder (format v1), relative to the repo root
@@ -87,6 +97,7 @@ class Neural:
     reward_pulse_ms: float = 300.0  # a reward message drives the reward / punish DANs this long
     forget_tau_s: float = 0.0       # plastic weights relax back with this time constant (0 = no forgetting)
     pref_alpha: float = 0.05        # EMA of the valence per tick for brain/state.pref (lt / odr)
+    speed_drive_min: float = 0.4    # seek speed x clip(drive, speed_drive_min, 1): low drive (fear) slows
 
     def circuit_path(self) -> Path:
         p = Path(self.circuit)
@@ -103,6 +114,7 @@ class BrainConfig:
     baseline: Baseline = field(default_factory=Baseline)
     motor: Motor = field(default_factory=Motor)
     neural: Neural = field(default_factory=Neural)
+    states: States = field(default_factory=States)
 
     def __post_init__(self):
         if self.controller not in ("baseline", "neural"):
@@ -140,7 +152,7 @@ def set_param(cfg: BrainConfig, key: str, value: Any) -> None:
         cfg.controller = value
         return
     section, _, name = key.partition(".")
-    if section not in ("baseline", "motor", "neural", "timing", "experiment") or not name:
+    if section not in ("baseline", "motor", "neural", "timing", "experiment", "states") or not name:
         raise KeyError(key)
     obj = getattr(cfg, section)
     hints = typing.get_type_hints(type(obj))

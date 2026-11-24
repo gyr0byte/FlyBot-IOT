@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .circuit import Circuit
+from .circuit import STATES, Circuit
 
 DT_MS = 1.0
 
@@ -132,6 +132,7 @@ class Network:
                                  "must use the same eligibility")
             self.elig_cap[pres], cap_set[pres] = cap, True
         self.p_raw0 = self.p_raw.copy()
+        self._init_state_modulation()
         # Which plastic edges each modulator neuron gates.
         gates: dict[int, list[np.ndarray]] = {}
         for row in c.modulation:
@@ -188,6 +189,51 @@ class Network:
         self.spikes = np.empty(0, dtype=np.int64)                   # global indices that spiked last step
         self.counts = np.zeros(self.n_groups, dtype=np.int64)        # since take_spk()
         self.elig = np.zeros(self.n)                                 # eligibility traces (weights are kept)
+
+    # ------------------------------------------------------------------ internal states (step 5.7)
+
+    def _init_state_modulation(self) -> None:
+        """Edges and neurons that internal states modulate (circuit state_modulation)."""
+        c = self.circuit
+        self.states = {s: 0.0 for s in STATES}
+        self._gain_edges: dict[str, np.ndarray] = {}
+        self._gain_base: dict[str, np.ndarray] = {}
+        self._bias_slices: dict[str, slice] = {}
+        self._bias_base: dict[str, np.ndarray] = {}
+        for sm in c.state_modulation:
+            if sm.kind == "gain" and sm.target not in self._gain_edges:
+                idx = np.flatnonzero(self.e_proj == self.projection_names.index(sm.target))
+                self._gain_edges[sm.target] = idx
+                self._gain_base[sm.target] = self.e_w[idx].copy()
+            elif sm.kind == "bias" and sm.target not in self._bias_slices:
+                o = self.offset[sm.target]
+                sl = slice(o, o + c.groups[sm.target].size)
+                self._bias_slices[sm.target] = sl
+                self._bias_base[sm.target] = self.bias[sl].copy()
+
+    def set_states(self, **states: float) -> None:
+        """Set internal states (0..1, e.g. hunger=0.6) and apply the circuit's state_modulation."""
+        changed = False
+        for name, value in states.items():
+            if name not in self.states:
+                raise KeyError(f"unknown state {name!r}; known: {', '.join(self.states)}")
+            value = min(max(float(value), 0.0), 1.0)
+            if value != self.states[name]:
+                self.states[name] = value
+                changed = True
+        if not changed or not self.circuit.state_modulation:
+            return
+        gain = {t: 1.0 for t in self._gain_edges}
+        shift = {t: 0.0 for t in self._bias_slices}
+        for sm in self.circuit.state_modulation:
+            if sm.kind == "gain":
+                gain[sm.target] += sm.k * self.states[sm.state]
+            else:
+                shift[sm.target] += sm.k * self.states[sm.state]
+        for t, idx in self._gain_edges.items():
+            self.e_w[idx] = self._gain_base[t] * max(gain[t], 0.0)
+        for t, sl in self._bias_slices.items():
+            self.bias[sl] = self._bias_base[t] + shift[t]
 
     def set_input(self, name: str, value: float) -> None:
         """Set an input binding's value (e.g. odour 0-1) -> Poisson rate of its group."""

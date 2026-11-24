@@ -40,6 +40,7 @@ class EdgeConfig:
     escape_turn_ms: int = 450
     escape_speed: float = 0.7
     escape_cooldown_ms: int = 1000
+    hab_enabled: bool = True             # looming habituation (plan step 5.8); off = always full response
 
     # --- obstacle stop ---
     obstacle_stop_cm: float = 12.0       # block forward motion closer than this

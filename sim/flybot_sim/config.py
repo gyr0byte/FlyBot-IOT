@@ -202,6 +202,17 @@ class Looming:
 
 
 @dataclass
+class Threat:
+    """A recurring looming threat: while the robot is within radius_m of (x, y), a looming object is
+    launched at it (as with the live view's L key) first_s after it enters and then every every_s."""
+    x: float
+    y: float
+    radius_m: float = 0.5
+    every_s: float = 4.0
+    first_s: float = 0.5
+
+
+@dataclass
 class Timing:
     sensors_hz: float = 20.0
     ping_hz: float = 1.0
@@ -225,6 +236,7 @@ class Scenario:
     ultrasonic: UltrasonicParams = field(default_factory=UltrasonicParams)
     battery: BatteryParams = field(default_factory=BatteryParams)
     looming: Looming = field(default_factory=Looming)
+    threats: list[Threat] = field(default_factory=list)
     timing: Timing = field(default_factory=Timing)
     edge: dict[str, Any] = field(default_factory=dict)  # overrides for edge.EdgeConfig
     goal: str = "first"            # first: reach sources[0]; any: the first source reached ends the trial

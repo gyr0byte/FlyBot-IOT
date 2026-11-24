@@ -28,6 +28,8 @@ class Inputs:
     bat: float           # pack voltage
     dt_ms: int           # robot time integrated this tick
     t_ms: int            # monotonic robot time
+    hun: float = 0.0     # internal states (5.7), 0-1
+    fear: float = 0.0
 
 
 @dataclass

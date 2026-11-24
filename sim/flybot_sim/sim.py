@@ -43,6 +43,8 @@ class TrialMetrics:
     reached_label: str | None = None    # which source was reached (goal "any", labelled sources)
     reward_sent: int | None = None      # training reward published on arrival (+1 / -1)
     done_at_ms: int | None = None       # the trial ends at this robot time (after arrival / reward hold)
+    min_source_dist_m: float | None = None   # closest approach to the target source after boot
+    threats: int = 0                    # looming objects launched by scenario threats
 
 
 class Simulation:
@@ -62,6 +64,7 @@ class Simulation:
         self.reward_delay_ms = int(round(reward_delay_s * 1000))
         self.hold_ms = int(round(hold_after_reward_s * 1000))
         self.pending_reward: tuple[int, int] | None = None   # (r, publish at robot time)
+        self.threat_next: dict[int, int] = {}          # threat index -> next launch (robot ms), while inside
         self.robot = Robot(sc.robot, Pose(sp.x, sp.y, math.radians(sp.heading_deg)), rngs[1])
         self.odour = [OdourSensor(sc.odour, +1, rngs[2]), OdourSensor(sc.odour, -1, rngs[3])]
         self.ultrasonic = Ultrasonic(sc.ultrasonic, rngs[4])
@@ -210,6 +213,7 @@ class Simulation:
 
         self.robot.step(dt, l, r, self.world)
         self.world.update(ts, dt)
+        self._threats(t)
         if t % 50 == 0:
             self.trail.append((self.robot.pose.x, self.robot.pose.y))
         self._check_reached(t)
@@ -316,6 +320,27 @@ class Simulation:
         stale_pings = sum(1 for t0, _ in self.pings.values() if self.t_ms - t0 > 2000)
         return self.edge.streams.lost + stale_pings
 
+    def _threats(self, t: int) -> None:
+        """Scenario threats (5.7) and the closest approach to the target."""
+        if not self.booted():
+            return
+        p = self.robot.pose
+        s = self.target()
+        d = math.hypot(p.x - s["x"], p.y - s["y"])
+        if self.m.min_source_dist_m is None or d < self.m.min_source_dist_m:
+            self.m.min_source_dist_m = d
+        for i, th in enumerate(self.sc.threats):
+            inside = math.hypot(p.x - th.x, p.y - th.y) <= th.radius_m
+            due = self.threat_next.get(i)
+            if not inside:
+                self.threat_next.pop(i, None)
+            elif due is None:
+                self.threat_next[i] = t + int(th.first_s * 1000)
+            elif t >= due:
+                self.launch_looming()
+                self.m.threats += 1
+                self.threat_next[i] = t + int(th.every_s * 1000)
+
     def results(self) -> dict:
         m = self.m
         rt = not self.lockstep
@@ -332,6 +357,8 @@ class Simulation:
             "motor_cmds": m.motor_cmds,
             "reached_label": m.reached_label,
             "reward_sent": m.reward_sent,
+            "min_source_dist_m": None if m.min_source_dist_m is None else round(m.min_source_dist_m, 3),
+            "threats": m.threats,
             # Latency only from real-time runs (contract section 7.1 (6)); empty in lockstep.
             "rtt_median_ms": (round(rtts[len(rtts) // 2], 1) if rtts and rt else None),
             "crtt_median_ms": (round(crtts[len(crtts) // 2], 1) if crtts and rt else None),

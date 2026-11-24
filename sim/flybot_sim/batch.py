@@ -25,7 +25,7 @@ log = logging.getLogger("flybot_sim.batch")
 
 COLUMNS = ["trial", "seed", "scenario", "mode", "controller", "phase", "start_index", "start_x", "start_y",
            "start_heading_deg", "reached", "reached_label", "reward_sent", "time_to_source_s", "path_length_m",
-           "collisions", "escapes", "fallback_time_s", "messages_lost", "lockstep_timeouts", "rtt_median_ms", "crtt_median_ms",
+           "collisions", "escapes", "fallback_time_s", "messages_lost", "lockstep_timeouts", "min_source_dist_m", "threats", "rtt_median_ms", "crtt_median_ms",
            "sim_duration_s", "wall_duration_s"]
 
 
@@ -61,7 +61,7 @@ def run_trials(sc: Scenario, trials: int, controller: str, realtime: bool, out: 
                 "time_to_source_s": r["time_to_source_s"], "path_length_m": r["path_length_m"],
                 "collisions": r["collisions"], "escapes": r["escapes"],
                 "fallback_time_s": r["fallback_time_s"], "messages_lost": r["messages_lost"],
-                "lockstep_timeouts": timeouts, "rtt_median_ms": r["rtt_median_ms"], "crtt_median_ms": r["crtt_median_ms"],
+                "lockstep_timeouts": timeouts, "min_source_dist_m": r["min_source_dist_m"], "threats": r["threats"], "rtt_median_ms": r["rtt_median_ms"], "crtt_median_ms": r["crtt_median_ms"],
                 "sim_duration_s": round(sim.trial_time_s(), 2),
                 "wall_duration_s": round(time.perf_counter() - wall0, 2),
             }
@@ -113,7 +113,7 @@ def run_experiment(sc: Scenario, controller: str, out: Path, link_factory: Calla
                        "reward_sent": r["reward_sent"], "time_to_source_s": r["time_to_source_s"],
                        "path_length_m": r["path_length_m"], "collisions": r["collisions"], "escapes": r["escapes"],
                        "fallback_time_s": r["fallback_time_s"], "messages_lost": r["messages_lost"],
-                       "lockstep_timeouts": timeouts, "rtt_median_ms": None, "crtt_median_ms": None,
+                       "lockstep_timeouts": timeouts, "min_source_dist_m": r["min_source_dist_m"], "threats": r["threats"], "rtt_median_ms": None, "crtt_median_ms": None,
                        "sim_duration_s": round(sim.trial_time_s(), 2),
                        "wall_duration_s": round(time.perf_counter() - wall0, 2)}
                 w.writerow({k: ("" if v is None else v) for k, v in row.items()})

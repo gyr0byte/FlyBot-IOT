@@ -363,6 +363,78 @@ conditions not interleaved, so not exactly reproducible) showed the same pattern
   learning.
 - All of this is in simulation, with a designed (not connectome) circuit.
 
+## Internal states: hunger and fear (Phase 5, step 5.7)
+
+Hunger and fear change the network, not the controller's rules. **How they act is circuit data**
+(manifest `state_modulation`, see the format below); **how they change over time is brain
+configuration** (`brain.yaml` `states:`). Both are published in `brain/state` (`hun`, `fear`), and
+the dashboard can set them with `brain/control` `c:"state"` (contract revision 8).
+
+**Dynamics** (robot time):
+- **Hunger** rises from 0 to 1 over 10 min (`hunger_rise_s` 600) and is reset to 0 when the robot
+  eats at a source (`dec: eat`). `hunger_start` sets its value at start-up and after a state reset;
+  experiments use it to make fed (0) and hungry (1) animals.
+- **Fear** jumps by 0.5 × the escape strength on each `escape` event from the robot (`resp`, so a
+  habituated, unacted threat does not frighten) and decays with τ = 20 s.
+
+**Coupling in the designed circuit**, chosen by criteria fixed before any behaviour was measured:
+
+| State | Target | k | Criterion and result |
+|---|---|---|---|
+| hunger | receptor → PN gain, both sides | 0.15 | hunger = 1 raises the PN response to a weak odour by ~50%: measured +53%. In flies, hunger signals boost olfactory input. |
+| hunger | approach-MBON bias | 0.6 | mirror image of fear, so hunger and fear meet on the same valence |
+| fear | avoid-MBON bias | 0.6 | target: untrained mid-odour valence −0.5 at fear = 1. **Not reached:** −0.25 (see below) |
+
+- **Why the fear target was missed.** The bias has to stay below threshold (output neurons must
+  not fire without input). The largest subthreshold bias, 0.8, gives only −0.32, because the output
+  neurons are driven hard by Kenyon cells (about 30 Hz) and a bias shifts that little. And the
+  closer to threshold, the more the output neurons fire on the faint light-driven KC background of
+  a dark arena without odour (hunger = fear = 1, worst of 10 seeds, per neuron): 0.14 Hz at 0.4,
+  0.28 Hz at 0.6, 0.74 Hz at 0.8, against 0.06 Hz without states. 0.6 was chosen as the middle:
+  valence −0.25 at fear = 1, and approach + avoid at most 0.54 Hz without odour, well below the
+  controller's 2 Hz valence gate. `tests/test_states.py` fails if this drifts (each group above
+  0.5 Hz, or approach + avoid above the gate).
+- **Speed (readout).** Seek speed is scaled by `clip(drive, 0.4, 1)` (`neural.speed_drive_min`):
+  fear lowers the valence, the drive and with it the speed. Without this, fear would only weaken
+  the steering. This also slows a robot approaching a learned-aversive odour.
+
+### Hunger vs fear experiment (E1)
+
+`sim/tools/state_experiment.py`, scenario `sim/scenarios/threat.yaml`: one odour source; while the
+robot is within 0.5 m of it, a looming object is thrown at it every 4 s.
+- **Design (2 × 2):** fed (hunger starts at 0) vs hungry (starts at 1), with the threat vs without.
+  10 animals (brain seeds) × 10 independent trials per cell (`--reset-on-reboot`, so hunger starts
+  at its condition's value every trial). Animal k has the same trial seeds and starts in every cell
+  and runs its four cells back to back. Batch lockstep wait 2 s; no lockstep timeouts.
+- **Habituation was off** (`edge: hab_enabled: false` in the scenario), so repeated threats could
+  not habituate and confound hunger with fear. The scenario keeps it off, and the tool refuses to
+  run if it is on.
+- Looming objects that reach the robot count as collisions, so collisions are not used here.
+
+| Cell | Reached | Median time to source | Escapes per trial | Threats per trial |
+|---|---|---|---|---|
+| fed, threat | 65% | 28.6 s | 2.11 | 3.54 |
+| hungry, threat | 77% | 25.5 s | 1.36 | 2.83 |
+| fed, no threat | 91% | 20.0 s | 0.04 | 0 |
+| hungry, no threat | 88% | 19.0 s | 0.06 | 0 |
+
+Paired per animal (difference in trials that reached the source, out of 10; exact sign test):
+
+| Comparison | Mean | Up / down / tie | p |
+|---|---|---|---|
+| threat − none, fed | −2.6 | 1 / 8 / 1 | 0.039 |
+| threat − none, hungry | −1.1 | 1 / 8 / 1 | 0.039 |
+| hungry − fed, with threat | +1.2 | 8 / 2 / 0 | 0.11 |
+| hungry − fed, without threat | −0.3 | 4 / 4 / 2 | 1.0 |
+| interaction (hungry − fed with threat, minus without) | +1.5 | 7 / 2 / 1 | 0.18 |
+
+**Reading it:** the threat clearly deters, for fed and hungry animals alike. Hunger helps only
+under threat and in the expected direction: hungry animals reached the guarded source more often
+(8 of 10 animals) and got through faster, with fewer escapes and fewer threats triggered. With 10
+animals this is suggestive, not established (p = 0.11; interaction p = 0.18); the sample was not
+extended. The weaker-than-planned state coupling (valence −0.25 instead of −0.5 at full fear) may
+limit the effect.
+
 ## Circuit file format (version 1)
 
 Circuits are **data, not code** (plan, Phase 5 design rule). The network engine
@@ -454,6 +526,24 @@ Says which modulator neuron gates the plastic synapses onto which target neurons
 - give either a half-open index range `[target_from, target_to)`, or a `compartment` label from
   `neurons.csv` (FlyWire: dopamine neuron → MBON compartment);
 - the target group must be the post group of a plastic projection.
+
+### `state_modulation` (optional manifest key)
+
+How internal states (step 5.7) act on the circuit. Each entry couples one state to one target:
+
+```yaml
+state_modulation:
+  - {state: hunger, kind: gain, projection: rl_pl, k: 0.15}   # effective weights x (1 + k * hunger)
+  - {state: fear,   kind: bias, group: mv,         k: 0.6}    # group bias + k * fear
+```
+
+- `state` is `hunger` or `fear` (0–1, from the brain's state dynamics).
+- `kind: gain` scales a **fixed** (non-plastic) projection's effective weights by `1 + k·state`;
+  several entries on the same projection add their `k·state` terms. `kind: bias` adds `k·state` to
+  the bias of every neuron in a LIF group.
+- Only the keys `state`, `kind`, `k` and `projection` (gain) or `group` (bias) are allowed.
+- The circuit holds the coupling; how fast the states rise and fall is brain configuration
+  (`brain.yaml` `states:`).
 
 ### Engine and performance
 

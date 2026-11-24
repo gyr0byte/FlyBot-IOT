@@ -3,7 +3,8 @@ name: designed
 description: 'Designed circuit: olfactory front end (steps 5.2-5.3: rate-coded receptors,
   projection neurons per side, cross-lateral inhibition), mushroom body (5.5: Kenyon
   cells with sparse PN and light input, APL feedback inhibition) and outputs (5.6:
-  approach / avoid MBONs with plastic KC synapses, reward / punishment DANs).'
+  approach / avoid MBONs with plastic KC synapses, reward / punishment DANs), internal
+  states (5.7: hunger and fear modulate gains and biases).'
 source:
   kind: designed
 generator:
@@ -123,4 +124,21 @@ projections:
   pre: pun
   post: dn
   scale: 0.15
+state_modulation:
+- state: hunger
+  kind: gain
+  projection: rl_pl
+  k: 0.15
+- state: hunger
+  kind: gain
+  projection: rr_pr
+  k: 0.15
+- state: hunger
+  kind: bias
+  group: ma
+  k: 0.6
+- state: fear
+  kind: bias
+  group: mv
+  k: 0.6
 modulation: modulation.csv
