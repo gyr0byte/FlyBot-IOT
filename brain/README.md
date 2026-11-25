@@ -175,6 +175,27 @@ tests; `bot/runner.py` wires them to MQTT.
 5. Start the brain (`python -m flybot_brain`); it logs "telegram bot running for 1 chat(s)". Send
    `/status`.
 
+## Failure containment (logger and bot)
+
+Nothing that goes wrong in the logger or the bot can stop the brain's control loop. Errors are logged
+(at most once every 10 s per part, so a broken disk cannot flood the log) and counted.
+
+| Failure | What happens |
+|---|---|
+| A link tap raises (e.g. a logger bug) | Caught in the MQTT thread and counted (`link.tap_errors`); the message is still handled |
+| Logger queue full (the writer is stuck) | The message is dropped and counted (`dropped`); `tap()` never blocks. Limit: 100,000 messages |
+| A message cannot be stored (bug, unexpected field) | Skipped and counted (`errors`); the writer carries on |
+| SQLite error on write or commit (disk full, locked, I/O error) | The open batch is dropped and counted, the connection closed and reopened with backoff (1 s, doubling, up to 60 s); messages queue up meanwhile |
+| Logger cannot open its database at start-up | Logged; the brain runs without the logger |
+| Telegram unreachable or refusing (`getUpdates`) | Logged; the poller backs off (1 s, doubling, up to 60 s) and retries |
+| `sendMessage` fails | Retried up to 3 times with backoff, then that reply is dropped and logged |
+| An exception in the bot logic, or a failing MQTT publish | Logged; the user gets "Sorry, that failed" and the bot carries on |
+| Bot cannot start (missing `MQTT_BOT_*`, etc.) | Logged; the brain runs without the bot |
+
+`tests/test_resilience.py` injects each of these failures (and all of them at once) and checks that
+the brain still answers every sensors message with a `cmd/motor`, and that the logger and bot recover
+when the failure clears.
+
 ## Baseline controller
 
 Braitenberg-style (`controllers/baseline.py`). In priority order each tick:

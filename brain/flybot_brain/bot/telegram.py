@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 log = logging.getLogger("flybot_brain.bot")
 
 
+class TelegramError(Exception):
+    """A Telegram call failed (network, HTTP, refused). The runner backs off and retries."""
+
+
 @dataclass
 class Update:
     update_id: int
@@ -54,6 +58,8 @@ class HttpTelegram(TelegramAPI):
         if offset is not None:
             params["offset"] = offset
         body = self._call("getUpdates", params, timeout_s + 10)
+        if body is None:
+            raise TelegramError("getUpdates failed")
         out = []
         for u in (body or {}).get("result", []):
             m = u.get("message") or {}

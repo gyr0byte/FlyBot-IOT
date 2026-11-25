@@ -66,7 +66,11 @@ def start_logger(cfg, link):
     except Exception as e:                       # pruning must never stop the brain
         log.warning("logger: prune failed: %s", e)
     logger = Logger(link.contract, path)
-    logger.start()
+    try:
+        logger.start()
+    except Exception as e:                       # e.g. an unusable database path: run without logging
+        log.error("logger not started (%s: %s); the brain runs without it", type(e).__name__, e)
+        return None
     link.taps.append(logger.tap)
     return logger
 

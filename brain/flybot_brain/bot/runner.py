@@ -7,6 +7,7 @@ import logging
 import queue
 import re
 import threading
+import time
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
@@ -40,10 +41,20 @@ def bot_settings(env: dict[str, str] | None = None) -> tuple[str, frozenset[int]
 
 
 class BotRunner:
+    """Failures are contained: a Telegram error makes the poller back off (1 s -> 60 s) and retry; a
+    message is sent up to `send_tries` times; an exception in the bot logic or an MQTT callback is
+    logged (rate-limited) and skipped. Nothing here can stop the brain (it runs on its own threads and
+    its own MQTT connection)."""
+
     def __init__(self, settings: MqttSettings, contract: Contract, bot: Bot, telegram: TelegramAPI,
-                 client: mqtt.Client | None = None, poll_timeout_s: int = 25):
+                 client: mqtt.Client | None = None, poll_timeout_s: int = 25,
+                 backoff_s: tuple[float, float] = (1.0, 60.0), send_tries: int = 3):
         self.settings, self.contract, self.bot, self.telegram = settings, contract, bot, telegram
         self.poll_timeout_s = poll_timeout_s
+        self.backoff_s, self.send_tries = backoff_s, send_tries
+        self.errors = 0
+        self._last_error_log = 0.0
+        self._stop = threading.Event()
         self.outq: queue.Queue = queue.Queue()
         self.running = False
         self.offset: int | None = None
@@ -69,6 +80,7 @@ class BotRunner:
 
     def stop(self) -> None:
         self.running = False
+        self._stop.set()
         self.outq.put(None)
         self.client.disconnect()
         self.client.loop_stop()
@@ -82,16 +94,26 @@ class BotRunner:
         for name in SUBSCRIBE:
             client.subscribe(self.contract.topic(name), qos=1)
 
+    def _failed(self, what: str, e: Exception) -> None:
+        self.errors += 1
+        now = time.monotonic()
+        if now - self._last_error_log > 10.0:
+            self._last_error_log = now
+            log.error("bot %s failed (%s: %s); %d errors so far; carrying on", what, type(e).__name__, e, self.errors)
+
     def _on_message(self, client, userdata, m):
-        name = self.contract.name_of(m.topic)
-        if name not in SUBSCRIBE or not m.payload:
-            return
         try:
-            msg = self.contract.decode(name, m.payload)
-        except ContractError:
-            return
-        for r in self.bot.on_mqtt(name, msg, bool(m.retain)):
-            self.outq.put(r)
+            name = self.contract.name_of(m.topic)
+            if name not in SUBSCRIBE or not m.payload:
+                return
+            try:
+                msg = self.contract.decode(name, m.payload)
+            except ContractError:
+                return
+            for r in self.bot.on_mqtt(name, msg, bool(m.retain)):
+                self.outq.put(r)
+        except Exception as e:                        # never break the bot's MQTT thread
+            self._failed("message handling", e)
 
     def publish(self, p: Publish) -> None:
         self.client.publish(self.contract.topic(p.name), self.contract.encode(p.name, p.msg), qos=p.qos, retain=p.retain)
@@ -102,28 +124,69 @@ class BotRunner:
         if chat_id not in self.bot.cfg.allowed_chats:
             log.warning("ignored a message from chat %s (not allowed)", chat_id)
             return
-        replies, pubs = self.bot.on_text(chat_id, text)
-        for p in pubs:
-            self.publish(p)
+        try:
+            replies, pubs = self.bot.on_text(chat_id, text)
+            for p in pubs:
+                self.publish(p)
+        except Exception as e:
+            self._failed(f"command {text.split()[0] if text.split() else ''!r}", e)
+            replies = [Reply(chat_id, "Sorry, that failed; it has been logged.")]
         for r in replies:
             self.outq.put(r)
 
+    def poll_once(self) -> bool:
+        """One getUpdates round. False if Telegram could not be reached (the caller backs off)."""
+        try:
+            updates = self.telegram.get_updates(self.offset, self.poll_timeout_s)
+        except Exception as e:
+            self._failed("telegram poll", e)
+            return False
+        for u in updates:
+            self.offset = u.update_id + 1
+            if u.text:
+                self.handle_update(u.chat_id, u.text)
+        return True
+
     def _poll(self) -> None:
+        backoff = self.backoff_s[0]
         while self.running:
-            for u in self.telegram.get_updates(self.offset, self.poll_timeout_s):
-                self.offset = u.update_id + 1
-                if u.text:
-                    self.handle_update(u.chat_id, u.text)
+            if self.poll_once():
+                backoff = self.backoff_s[0]
+            else:
+                self._stop.wait(backoff)
+                backoff = min(backoff * 2, self.backoff_s[1])
+
+    def send_once(self, r: Reply) -> bool:
+        delay = self.backoff_s[0]
+        for attempt in range(self.send_tries):
+            try:
+                if self.telegram.send_message(r.chat_id, r.text):
+                    return True
+            except Exception as e:
+                self._failed("telegram send", e)
+            if attempt + 1 < self.send_tries and not self._stop.wait(delay):
+                delay = min(delay * 2, self.backoff_s[1])
+        log.warning("dropped a message to chat %s after %d tries", r.chat_id, self.send_tries)
+        return False
 
     def _send(self) -> None:
         while self.running:
             r = self.outq.get()
             if isinstance(r, Reply):
-                self.telegram.send_message(r.chat_id, r.text)
+                self.send_once(r)
 
 
 def start_bot(contract: Contract) -> BotRunner | None:
-    """Start the bot if a token and allowed chat ID are configured (.env), else return None."""
+    """Start the bot if a token and allowed chat ID are configured (.env), else return None. Any
+    failure while starting is logged and the brain runs on without the bot."""
+    try:
+        return _start_bot(contract)
+    except Exception as e:
+        log.error("telegram bot not started (%s: %s); the brain runs without it", type(e).__name__, e)
+        return None
+
+
+def _start_bot(contract: Contract) -> BotRunner | None:
     conf = bot_settings()
     if conf is None:
         log.info("telegram bot not started: TELEGRAM_BOT_TOKEN / TELEGRAM_ALLOWED_CHAT_ID not configured")

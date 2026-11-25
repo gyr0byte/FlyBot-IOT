@@ -41,6 +41,8 @@ class BrainLink:
         self.worker: threading.Thread | None = None
         self.invalid_in = 0
         self.taps: list = []                # e.g. the logger: tap(name, payload, retained) for every message
+        self.tap_errors = 0
+        self._tap_error_logged = 0.0
         self.lwt = offline_status(contract, brain.up, "brain/status")
         c = mqtt.Client(CallbackAPIVersion.VERSION2, client_id=f"flybot-{settings.robot_id}-brain",
                         protocol=mqtt.MQTTv311, clean_session=True)
@@ -93,7 +95,13 @@ class BrainLink:
         name = self.contract.name_of(m.topic)
         if name is not None and name in TOPIC_SCHEMA:
             for tap in self.taps:           # the logger sees everything, our own messages included
-                tap(name, m.payload, bool(m.retain))
+                try:
+                    tap(name, m.payload, bool(m.retain))
+                except Exception:           # a tap must never break the brain's network thread
+                    self.tap_errors += 1
+                    if time.monotonic() - self._tap_error_logged > 10.0:
+                        self._tap_error_logged = time.monotonic()
+                        log.exception("a message tap failed (%d so far); the brain carries on", self.tap_errors)
         if name is None or name in OWN or name not in TOPIC_SCHEMA:
             return
         if m.retain and not m.payload:
