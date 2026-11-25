@@ -101,7 +101,7 @@ Plus this summary and the README status (committed last).
 
 ## Housekeeping on D:
 
-- `D:\Tools\mingw64` (GCC 14, about 1 GB unpacked) and `D:\Tools\downloads\winlibs-gcc14.zip` (244 MB)
+- `D:\Tools\mingw64` (GCC 14, 11 680 files unpacked) and `D:\Tools\downloads\winlibs-gcc14.zip` (244 MB)
   are unused because the sandbox would not run them. Delete both, or allow them and use
   `D:\Tools\mingw64\bin` instead of `C:\MinGW\bin` for the PC tests (then `std::optional` and C++17 would
   also work on the PC). I did not delete them myself.
