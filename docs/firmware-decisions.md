@@ -59,3 +59,56 @@ The only difference: **`ODOUR_WARMUP_MS` is 60 000 ms on the robot** (the simula
 says it is shortened for development). A real MQ-3 needs about a minute after power-on before its
 baseline is meaningful (much longer the very first time; see the bring-up checklist). The robot holds
 still in `boot` meanwhile, as the contract requires.
+
+## 5. Edge logic: a separate pure C++ library, ported statement by statement
+
+`firmware/lib/flybot_edge/` holds `edge.cpp` (state machine, watchdog, fallback, looming, habituation,
+sleep, e-stop, motor mixer), `sensing.cpp` (odour channel, distance filter, battery monitor) and
+`streams.cpp` (contract section 6 sequence rules). They use no Arduino calls and no heap after
+construction, so they run on the PC under test. Functions keep the Python names and statement order,
+and every floating-point expression keeps Python's operation order (doubles throughout; the ESP32
+emulates doubles in software, which costs microseconds at 200 Hz). Randomness is injected
+(`esp_random()` on the robot, recorded values in the tests).
+
+## 6. Fixed memory instead of Python's growing lists
+
+Python's lists become fixed arrays: 16 sequence streams (when full, the least recently seen one is
+forgotten early; rule 13 would forget it after 10 minutes anyway), 32 pending events, the odour
+warm-up window holds 128 readings (1 s at up to 128 Hz; the robot reads at 20 Hz), the distance median
+at most 16. Within those limits the behaviour is identical.
+
+## 7. Python-exact arithmetic
+
+Three Python details would otherwise make the port drift:
+- `round(x)` and `round(x, n)` round exact halves to even and decide on the exact binary value
+  (`round(2.675, 2)` is 2.67). `py_round` reproduces this with an exact product (Dekker's
+  algorithm) instead of `x * 100` (which rounds twice).
+- Python 3.12's `sum()` of floats uses Neumaier compensated summation (`sum([0.1] * 10) == 1.0`), so
+  the odour baseline and the approach speed use the same algorithm (`NeumaierSum`).
+- The build uses `-ffp-contract=off` so the compiler never fuses a multiply and an add (Python
+  never does).
+
+## 8. One Python quirk reproduced on purpose
+
+`fallback_off.dur` is `now - (self.fallback_since or now)` in Python, so a fallback that started at
+exactly `up = 0` reports 0. The port does the same to stay bit-identical; on the robot fallback can
+never start at 0 because boot holds for at least the warm-up.
+
+## 9. `on_link(false)` takes an optional reason
+
+The contract allows `fallback_on.why = wifi_lost`, but the simulator only ever reports `mqtt_lost`.
+`Edge::on_link(up, now, why_lost = MqttLost)` keeps the simulator's behaviour by default; the firmware
+passes `WifiLost` when the Wi-Fi itself dropped, so the event says what happened.
+
+## 10. PC tests: the installed MinGW GCC 6.3, C++14, SSE2
+
+There is no host compiler in the project's toolchain. I downloaded a current MinGW-w64 GCC to
+`D:\Tools\mingw64`, but this session's sandbox refused to execute a freshly downloaded compiler, so the
+native tests use the MinGW GCC 6.3 already installed at `C:\MinGW` (only run, nothing installed or
+written on C:; build output goes to `firmware\.pio`). Consequences:
+- GCC 6 has no `std::optional`, so the library uses its own small `Opt<T>` and builds as C++14 (the
+  ESP32 build uses C++17).
+- That compiler is 32-bit, whose default x87 arithmetic uses 80-bit intermediates; the native
+  environment builds with `-msse2 -mfpmath=sse` to get the same IEEE doubles as Python.
+To run them: put a gcc on `PATH` (e.g. `$env:PATH = "C:\MinGW\bin;$env:PATH"`) and run
+`pio test -e native`. `D:\Tools\mingw64` (GCC 14) also works if you allow it; delete it otherwise.
