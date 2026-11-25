@@ -146,8 +146,8 @@ placeholder does not count); `--no-bot` switches it off; `python -m flybot_brain
 | `/status` | robot state, mode, battery, Wi-Fi, uptime; brain controller, sensor health, lag; decision and why; hunger, fear, habituation; lesions |
 | `/good`, `/bad` | `reward` +1 / −1 (`src: bot`) |
 | `/sleep`, `/wake` | `brain/sleep` (the brain decides and tells the robot) |
-| `/stop` | `cmd/mode` `estop` (retained) |
-| `/resume` | `cmd/mode` `auto` (retained): clears an e-stop from the phone |
+| `/stop` | `cmd/mode` `estop` (retained); if a dashboard already e-stopped the robot, nothing is sent |
+| `/resume` | `cmd/mode` `auto` (retained), **only if the current e-stop was set by the bot**; an e-stop from a dashboard must be cleared in the dashboard (the bot replies so) |
 | `/learned` | the learned preferences (`brain/state.pref`) in words |
 | `/help` | the list |
 

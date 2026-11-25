@@ -61,7 +61,7 @@ def texts(replies):
 
 @pytest.mark.parametrize("cmd, name, field", [("/good", "reward", ("r", 1)), ("/bad", "reward", ("r", -1)),
                                               ("/sleep", "brain/sleep", ("s", True)), ("/wake", "brain/sleep", ("s", False)),
-                                              ("/stop", "cmd/mode", ("m", "estop")), ("/resume", "cmd/mode", ("m", "auto"))])
+                                              ("/stop", "cmd/mode", ("m", "estop"))])
 def test_commands_publish_contract_valid_messages(cmd, name, field):
     bot, _ = make()
     replies, pubs = bot.on_text(ME, cmd)
@@ -70,6 +70,63 @@ def test_commands_publish_contract_valid_messages(cmd, name, field):
     C.validate(p.name, p.msg)
     assert p.name == name and p.msg[field[0]] == field[1] and p.msg["src"] == "bot"
     assert p.retain == (name == "cmd/mode") and p.qos == 1
+
+
+def mode(m, src):
+    return {"v": 2, "seq": 1, "up": 1, "m": m, "src": src}
+
+
+def test_resume_clears_an_estop_the_bot_set():
+    bot, _ = make()
+    bot.on_text(ME, "/stop")
+    bot.on_mqtt("cmd/mode", mode("estop", "bot"), retained=False)          # our own retained echo
+    replies, pubs = bot.on_text(ME, "/resume")
+    (p,) = pubs
+    C.validate(p.name, p.msg)
+    assert p.name == "cmd/mode" and p.msg["m"] == "auto" and p.msg["src"] == "bot" and p.retain and p.qos == 1
+    assert "cleared" in replies[0].text
+
+
+def test_resume_works_before_the_echo_arrives_and_after_a_restart():
+    bot, _ = make()
+    bot.on_text(ME, "/stop")                                                # no echo yet
+    assert bot.on_text(ME, "/resume")[1][0].msg["m"] == "auto"
+    fresh, _ = make()                                                       # bot restarted: learns from the retained message
+    fresh.on_mqtt("cmd/mode", mode("estop", "bot"), retained=True)
+    assert fresh.on_text(FRIEND, "/resume")[1][0].msg["m"] == "auto"
+
+
+def test_resume_refuses_a_dashboard_estop():
+    bot, _ = make()
+    bot.on_mqtt("cmd/mode", mode("estop", "dash-3fa2c1"), retained=True)
+    replies, pubs = bot.on_text(ME, "/resume")
+    assert pubs == [] and "dashboard" in replies[0].text and "cleared there" in replies[0].text
+
+
+def test_dashboard_estop_after_a_bot_estop_belongs_to_the_dashboard():
+    bot, _ = make()
+    bot.on_text(ME, "/stop")
+    bot.on_mqtt("cmd/mode", mode("estop", "dash-3fa2c1"))
+    assert bot.on_text(ME, "/resume")[1] == []
+
+
+def test_stop_does_not_take_over_a_dashboard_estop():
+    bot, _ = make()
+    bot.on_mqtt("cmd/mode", mode("estop", "dash-3fa2c1"), retained=True)
+    replies, pubs = bot.on_text(ME, "/stop")
+    assert pubs == [] and "dashboard" in replies[0].text                   # still stopped; nothing re-sent
+    assert bot.on_text(ME, "/resume")[1] == []
+
+
+def test_resume_when_not_stopped_does_nothing():
+    bot, _ = make()
+    replies, pubs = bot.on_text(ME, "/resume")                              # nothing known yet
+    assert pubs == [] and "Nothing to resume" in replies[0].text
+    bot.on_mqtt("cmd/mode", mode("manual", "dash-3fa2c1"))
+    replies, pubs = bot.on_text(ME, "/resume")
+    assert pubs == [] and "manual" in replies[0].text
+    bot.on_text(ME, "/stop"); bot.on_mqtt("cmd/mode", mode("auto", "dash-3fa2c1"))   # dashboard already cleared it
+    assert bot.on_text(ME, "/resume")[1] == []
 
 
 def test_seq_counts_per_topic():

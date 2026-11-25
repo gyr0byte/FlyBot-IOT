@@ -90,6 +90,11 @@ on D:.
 16. **`/resume` added.** `/stop` publishes a retained `estop`, which only `cmd/mode` `auto` or
     `manual` clears (contract §5). Without `/resume` the phone could stop the robot but never
     restart it. `/resume` publishes `auto`; the bot is allowed to publish `cmd/mode`.
+    **Revised after review (approved with a check):** `/resume` clears only an e-stop the bot itself
+    set. The bot tracks the `src` of the retained `cmd/mode`; if the e-stop came from a dashboard
+    (`dash-xxxxxx`) it replies that it must be cleared there, and if the robot is not e-stopped it
+    says there is nothing to resume. To keep that rule from being sidestepped, `/stop` sends nothing
+    when a dashboard e-stop is already in force (re-sending it would make it look like the bot's).
 
 17. **Alerts beyond the list.** Also "brain went offline / back online" (from `brain/status`), and
     "caught up" after a lag alert, and "fallback ended". Why: the same transitions as the requested

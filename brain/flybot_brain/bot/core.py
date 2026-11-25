@@ -18,7 +18,7 @@ QOS = {"cmd/mode": 1, "reward": 1, "brain/sleep": 1}
 RETAIN = {"cmd/mode"}
 
 HELP = ("FlyBot commands:\n/status – state, hunger, fear, battery, uptime\n/good, /bad – reward or punish\n"
-        "/sleep, /wake – ask the brain to sleep or wake\n/stop – emergency stop\n/resume – back to autonomous\n"
+        "/sleep, /wake – ask the brain to sleep or wake\n/stop – emergency stop\n/resume – clear an e-stop sent from here\n"
         "/learned – what it has learned")
 
 
@@ -60,6 +60,7 @@ class Bot:
         self.brain_status: dict | None = None
         self.brain_state: dict | None = None
         self.mode: str | None = None
+        self.mode_src: str | None = None         # who set the retained cmd/mode: "bot" or "dash-xxxxxx"
         self.robot_online: bool | None = None
         self.brain_online: bool | None = None
         self.lagging = False
@@ -105,7 +106,7 @@ class Bot:
                     self.lagging = False
                     out += self._alert("✅ Brain has caught up.")
         elif name == "cmd/mode":
-            self.mode = msg["m"]
+            self.mode, self.mode_src = msg["m"], msg.get("src")
         elif name == "brain/state":
             self.brain_state = msg
             out += self._check_learned(msg.get("pref") or {})
@@ -163,10 +164,25 @@ class Bot:
             return [Reply(chat_id, "😴 Asked the brain to sleep." if s else "☀️ Asked the brain to wake.")], \
                 [self._publish("brain/sleep", s=s)]
         if cmd == "/stop":
+            if self.mode == "estop" and self.mode_src != "bot":
+                # Already stopped from a dashboard. Re-sending would make the e-stop look like ours and
+                # let /resume clear it, so leave it as it is: it stays stopped either way.
+                return [Reply(chat_id, "🛑 Already emergency-stopped from the dashboard; it must be cleared there.")], []
+            self.mode, self.mode_src = "estop", "bot"       # ours from now on (the retained echo confirms it)
             return [Reply(chat_id, "🛑 Emergency stop sent. /resume to drive again.")], [self._publish("cmd/mode", m="estop")]
         if cmd == "/resume":
-            return [Reply(chat_id, "▶️ Back to autonomous mode.")], [self._publish("cmd/mode", m="auto")]
+            return self._resume(chat_id)
         return [Reply(chat_id, "Unknown command.\n" + HELP)], []
+
+    def _resume(self, chat_id: int) -> tuple[list[Reply], list[Publish]]:
+        """Clear an e-stop only if the bot set it; one set from a dashboard must be cleared there."""
+        if self.mode != "estop":
+            now = f" (mode is {self.mode})" if self.mode else ""
+            return [Reply(chat_id, f"Nothing to resume: the robot is not emergency-stopped{now}.")], []
+        if self.mode_src != "bot":
+            return [Reply(chat_id, "⛔ This e-stop was set from the dashboard; it must be cleared there.")], []
+        self.mode, self.mode_src = "auto", "bot"
+        return [Reply(chat_id, "▶️ E-stop cleared: back to autonomous mode.")], [self._publish("cmd/mode", m="auto")]
 
     def status_text(self) -> str:
         st, bs, s = self.status or {}, self.brain_status or {}, self.brain_state or {}
