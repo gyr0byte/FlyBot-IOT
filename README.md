@@ -85,7 +85,7 @@ in `firmware/include/secrets.h` (git-ignored).
 | 3 | Simulator | ✅ done (lockstep about 20x real time; learning-experiment support added in Phase 5) |
 | 4 | Brain skeleton + rule-based baseline | ✅ done (baseline, re-measured with independent trials: 84% / 61% / 97%, see [brain/README.md](brain/README.md)) |
 | 5 | Neural brain | in progress: 5.1–5.12 done (neural steering 79% / 49% / 91%; mushroom body and dopamine learning: punishment learned and mostly cue-specific, reward untestable at ceiling; hunger and fear, habituation on the robot, sleep with consolidation, lesions and explanations, save and restore, Brian2 check; see [brain/README.md](brain/README.md)). Next: 5.13 FlyWire circuit |
-| 6 | ESP32 firmware | not started (waiting for parts; reference logic in `sim/flybot_sim/edge*.py`) |
+| 6 | ESP32 firmware | written and compiled, **not flashed** (no hardware yet): edge logic ported from the simulator and cross-checked bit for bit, contract messages checked against the Python contract, Wi-Fi/MQTT/portal, flash 52 %, RAM 23 %; see [docs/firmware-summary.md](docs/firmware-summary.md) and the [bring-up checklist](docs/hardware-bringup.md) |
 | 7 | Integration with the real robot | not started (needs the firmware) |
 | 8 | Logger and database | ✅ done (module of the brain program: SQLite on D:, reliability counts, CSV export, read API; see [brain/README.md](brain/README.md#logger-phase-8)) |
 | 9 | Dashboard | ✅ done (Next.js: login, live overview, charts, brain view, all controls, history; smoke test incl. a real browser; see [dashboard/README.md](dashboard/README.md)) |
