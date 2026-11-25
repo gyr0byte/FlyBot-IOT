@@ -148,3 +148,110 @@ approach window. 10 were caught (two only after I added the boundaries scenario 
 sensing file, and made the odour comparison exact). The 2 not caught (plain sum in the approach speed,
 approach window of 7) change only an internal speed estimate that never changed a decision in any
 vector, so the outputs really are identical.
+
+## 13. Messages: own strict JSON parser, cross-checked against the Python contract
+
+`lib/flybot_io/messages.cpp` builds everything the robot publishes and parses everything it receives.
+I started with ArduinoJson and dropped it: version 7.2 deliberately stores short decimals as 32-bit
+floats to save memory, so `"l":0.33` arrived as 0.32999998; it is also more lenient than Python's
+`json` (single quotes, trailing text, leading zeros). Every incoming message is a flat object, so the
+firmware now checks the JSON grammar and UTF-8 exactly like Python's `json.loads`, extracts the
+members itself (integers exactly, decimals with `strtod`, the last duplicate key wins as in Python), and
+validates each schema by hand (types, ranges, enums, patterns, required and unknown keys). No heap.
+
+- **Parsers:** 1 447 payloads (480 valid; the rest have missing keys, extra keys, wrong types, values out
+  of range, wrong versions, bad patterns, broken JSON, invalid UTF-8, duplicate keys, `1.0` or `3e2` as
+  integers and so on) get exactly the Python contract's verdict, and the valid ones decode to the same
+  values.
+- **Builders:** 1 280 messages built from random and out-of-range inputs all pass the Python schemas,
+  and every number equals Python's `round()` of the clamped input (`firmware/tools/check_messages.py`).
+  The builders cannot produce an invalid message: values are clamped to the contract ranges first.
+- An unknown `v` is counted separately from other invalid messages (contract section 6 rule 2); both
+  reset the leave-fallback count, as in the simulator.
+
+## 14. Two Python-contract details mirrored, one deliberately not
+
+- Python's `re.search` with `$` also matches before one trailing newline, so `"src":"bot\n"` is valid
+  for the Python contract. The firmware mirrors it to agree exactly (proposal P2 below).
+- Python's `json.loads` accepts `NaN` and `Infinity`, and the schema then accepts `"l": NaN`. The robot
+  rejects them (a NaN wheel command is never right). This is the only verdict that differs; it is left
+  out of the vectors and listed as proposal P1.
+
+## 15. Task layout (plan step 6.5)
+
+| Task | Core | Priority | Period | Owns |
+|---|---|---|---|---|
+| reflex | 1 | 23 (highest) | 5 ms (200 Hz, the simulator's step) | the Edge, the ultrasonic sensor, the motors |
+| sensor | 1 | 10 | 50 ms (20 Hz) | odour channels, light, battery; publishes `sensors` |
+| ui | 1 | 4 | 20 ms | buttons, RGB LED, buzzer, on-board LED |
+| comms | 0 | 6 | 20 ms | Wi-Fi, MQTT, portal, NTP; publishes status, events, rewards, ping |
+| console | 1 | 1 (Arduino loop) | 10 ms | serial commands |
+
+The reflex task never waits on the network: inputs come through a queue it drains without blocking, and
+everything it publishes leaves through another; MQTT messages are queued with `esp_mqtt_client_enqueue`,
+which never blocks. The plan lists a separate motor task; I folded it into the reflex task, which writes
+the motors right after each edge step, because a hand-off between tasks would add up to a tick of latency
+to the escape. The plan's ultrasonic "about 40 Hz" became 25 Hz, the simulator's rate: the looming
+thresholds were tuned at 25 Hz, and an HC-SR04 with no echo holds its output high for up to 38 ms, so
+40 Hz readings would overlap. The ultrasonic is interrupt-timed (no `pulseIn`), so it never blocks.
+
+## 16. Escape latency measured in microseconds
+
+The edge computes `lat` in whole milliseconds from its own clock. On the robot, the reflex task replaces
+it with the measured time from the end of the echo that completed the detection to the motor outputs
+being written (0.1 ms resolution), which is what plan step 6.6 asks for. The console `status` shows it.
+
+## 17. MQTT connection details
+
+esp-mqtt reconnects by itself (every 2 s) while Wi-Fi is up. The last will must carry the uptime at
+connect (contract 3.3), so it is rebuilt in `MQTT_EVENT_BEFORE_CONNECT` before every connection attempt.
+Wi-Fi reconnects are paced by the comms task (1 s, doubling to 30 s). When Wi-Fi drops, the edge is told
+at once with `fallback_on.why = wifi_lost` instead of waiting for the keep-alive. TLS is ready: tick TLS
+in the portal (or set `SECRET_MQTT_TLS 1`) and put the broker's CA certificate in `secrets.h`; the robot
+waits for NTP before a TLS connection, because certificate dates need the clock. NTP is used only for that
+and for logs; no wall-clock time goes into a payload (contract section 2).
+
+## 18. Setup portal
+
+Built on the Arduino `WebServer` and `DNSServer` (a captive portal), with no extra library. It opens when
+the robot has not joined Wi-Fi 30 s after power-on, when both buttons are held for 3 s at power-on, or
+from the console. It stores the Wi-Fi network and password, the broker address, port and TLS, and
+optionally a new MQTT password, in NVS (they then override `secrets.h`), and restarts. Passwords are never
+shown back. **The motors stay off while the portal is open**, although the contract would let a robot
+without a broker leave `boot` after 10 s and wander: someone is holding a phone next to it. Once Wi-Fi has
+worked, losing it never opens the portal; the robot wanders in fallback as the contract says.
+
+## 19. Smaller firmware choices
+
+- **Boot ID** is drawn after `WiFi.mode(WIFI_STA)`: `esp_random()` is only truly random with the radio on.
+- **Rewards pressed while offline are dropped** (with an error beep), not queued: a reward delivered
+  later would train whatever the robot is doing then. The offline queue (32 entries; the contract asks
+  for at least 20) holds events, which keep the `up` of when they happened.
+- **Motors:** 20 kHz PWM, coast at zero, standby (STBY low) in boot, e-stop, sleep, battery cut-off and
+  while the portal is open. The duty cap is applied by the edge mixer (as in the simulator) and again in
+  the PWM layer. `MOTOR_*_INVERT`, `MOTOR_TRIM_*` and `MOTOR_MIN_DUTY` in config.h are for bring-up.
+- **Mood colours** (plan 6.9): boot white pulse, cloud green, manual cyan, escape red, fallback amber
+  (purple when also offline), sleep dim blue pulse, e-stop red blink, portal blue blink, battery cut dim
+  red, low battery an orange flash every 2 s. "Hungry" cannot be shown: see proposal P3.
+- **Buzzer:** boot, connected, escape, Wi-Fi lost, low battery (every 30 s), cut-off, reward, punish,
+  error, portal. Passive piezo by default (`BUZZER_PASSIVE`).
+- **Partition table `min_spiffs.csv`**: two 1.9 MB app slots (room for over-the-air updates, plan 6.14)
+  instead of the default 1.25 MB, which the firmware already filled to 78 %.
+- **A missing `secrets.h`** still builds (with the template's placeholders): the console says so and the
+  portal opens. A fresh clone stays buildable.
+- **Watchdog:** the task watchdog (5 s, restart on timeout) watches the reflex, sensor, ui and comms
+  tasks; the console command `freeze` stops feeding it to test the restart (reset reason `watchdog`).
+- **Encoders** (optional, off by default) only count pulses for the console; there is no contract field.
+
+## Contract proposals (not implemented; for your decision)
+
+- **P1. Reject NaN and Infinity in `Contract.decode`.** Python's `json.loads` accepts them by default, so
+  `{"l": NaN}` passes the `cmd-motor` schema (NaN fails no `minimum` or `maximum` check). Suggest
+  `json.loads(..., parse_constant=...)` raising, so every receiver agrees with the firmware.
+- **P2. Anchor the sender-name patterns exactly.** In Python, `^(bot|dash-[0-9a-f]{6})$` also matches
+  `"bot\n"` (`$` matches before a trailing newline). Suggest validating `src` with a full match (or
+  `\Z`), and noting in the contract that sender names never contain control characters.
+- **P3. Let the robot know the brain's mood if "hungry" should show on the LED.** Plan step 6.9 lists a
+  "hungry" colour, but hunger lives in `brain/state`, which the `esp32` user may not read (section 4).
+  Options: allow `esp32` to read `brain/state`, or add an optional mood field to `cmd/motor`. Without a
+  change the LED shows the robot's own states only.
