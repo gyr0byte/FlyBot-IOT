@@ -1,20 +1,26 @@
-# firmware/
+# firmware/: the FlyBot robot (ESP32)
 
-ESP32 firmware for the robot body — PlatformIO project, Arduino framework (not yet created).
+PlatformIO project for the ESP32 DevKit (`esp32dev`), Arduino framework, ESP-IDF `esp-mqtt` for MQTT.
+It follows [`docs/message-contract.md`](../docs/message-contract.md) and ports the simulator's edge
+logic (`sim/flybot_sim/edge.py`, `edge_sensing.py`) to C++.
 
-Will contain:
+| Path | What |
+|---|---|
+| `platformio.ini` | `esp32dev` (the robot) and `native` (unit tests on the PC) |
+| `include/config.h` | every pin and threshold; section B mirrors `sim/flybot_sim/edge_config.py` |
+| `include/secrets.example.h` | template for `include/secrets.h` (git-ignored): Wi-Fi, broker, MQTT password |
+| `tools/check_config.py` | checks config.h section B against the simulator's `EdgeConfig` |
 
-- Sensor reading: two MQ-3 odour sensors (reported as change from baseline, 0–1),
-  HC-SR04 ultrasonic distance, optional LDR, battery voltage.
-- Motor mixer for the TB6612/L298N (−1.0 to +1.0 per wheel, duty cap, ramping, dead zone).
-- Edge reflexes: looming escape, obstacle stop, Wi-Fi-loss fallback wandering.
-- Safety state machine (boot, cloud, escape, fallback, sleep, estop) and command watchdog.
-- MQTT via ESP-IDF `esp-mqtt` (QoS 1, last-will, TLS) following
-  [`docs/message-contract.md`](../docs/message-contract.md).
+## Tools (on D:, see CLAUDE.md)
 
-Planned layout: `platformio.ini`, `include/config.h` (all pins and thresholds),
-`include/secrets.example.h` (committed) and `include/secrets.h` (git-ignored: Wi-Fi and MQTT
-credentials), `src/`.
+```powershell
+$env:PLATFORMIO_CORE_DIR = "D:\Tools\platformio"; $env:TMP = "D:\Tools\tmp"; $env:TEMP = "D:\Tools\tmp"
+D:\Tools\pio-venv\Scripts\pio run -e esp32dev          # build
+D:\Tools\pio-venv\Scripts\pio run -e esp32dev -t upload # flash (board on USB)
+D:\Tools\pio-venv\Scripts\pio device monitor            # serial console, 115200 baud
+```
 
-Keep PlatformIO on D: — set `PLATFORMIO_CORE_DIR` to a D: folder before installing (see
-[`CLAUDE.md`](../CLAUDE.md)).
+PlatformIO was installed with `python -m venv D:\Tools\pio-venv` and
+`pip install platformio==6.1.18` (pip cache `D:\Tools\cache\pip`).
+
+Before the first build: `copy include\secrets.example.h include\secrets.h` and fill it in.
