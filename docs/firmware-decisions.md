@@ -112,3 +112,39 @@ written on C:; build output goes to `firmware\.pio`). Consequences:
   environment builds with `-msse2 -mfpmath=sse` to get the same IEEE doubles as Python.
 To run them: put a gcc on `PATH` (e.g. `$env:PATH = "C:\MinGW\bin;$env:PATH"`) and run
 `pio test -e native`. `D:\Tools\mingw64` (GCC 14) also works if you allow it; delete it otherwise.
+
+## 11. Cross-check vectors: recorded from the Python module, committed to the repository
+
+`firmware/tools/gen_vectors.py` (run with the simulator's venv) wraps the Python `Edge`, `OdourChannel`,
+`DistanceFilter` and `BatteryMonitor` in recording subclasses and logs every input call, every random
+number drawn and every output. It produces:
+- 4 **simulator runs** (odour seeking with a scripted fake brain that loses, duplicates and corrupts
+  commands, goes silent, changes mode, sends sleep and drops the link; obstacles; the threat
+  scenario; repeated looming for habituation), with their sensor processing;
+- 9 **scripted scenarios** (boot, boot without broker, retained e-stop, cloud/fallback rules, wander,
+  manual, looming with habituation and dishabituation, sleep, battery) plus a **boundaries** scenario
+  that hits every threshold exactly (ttl window, obstacle 12 cm, wander 30/45 cm, turning hold-off,
+  escape cooldown);
+- 3 **random** scenarios (random inputs at random times), arithmetic vectors (`round`, `sum`), 6 000
+  random stream-tracker operations and a scripted sensing file.
+
+Doubles are stored as their 64-bit patterns (the PC test compiler's `strtod` is not guaranteed exact).
+The vectors are committed (3.5 MB of text) so the C++ tests run without Python; rerun the generator
+after any change to `edge.py`, `edge_sensing.py` or `edge_config.py`.
+
+**Result:** 17 edge vectors with 100 040 control steps, 15 803 sensing steps, 8 972 arithmetic and
+6 000 stream vectors: identical. Motor outputs, states, modes, events (every field), random-number use
+and counters match bit for bit. The habituation level is the only value compared with a tolerance
+(1e-12 relative), because it goes through `exp()` and C libraries may differ in the last bit; 3 of
+those values differ in the last bit, none changes any decision.
+
+## 12. The cross-check was itself tested by planting bugs
+
+To make sure the vectors can fail, I planted 12 one-line bugs in the port, one at a time: `<` vs `<=`
+in the fallback ttl window, the obstacle stop, the wander clear distance, the turning hold-off, the
+watchdog, the escape cooldown, the distance window and the habituation threshold; naive rounding; a
+plain instead of compensated mean for the odour baseline and for the approach speed; a shorter
+approach window. 10 were caught (two only after I added the boundaries scenario and the scripted
+sensing file, and made the odour comparison exact). The 2 not caught (plain sum in the approach speed,
+approach window of 7) change only an internal speed estimate that never changed a decision in any
+vector, so the outputs really are identical.
