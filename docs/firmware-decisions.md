@@ -4,35 +4,12 @@ Built autonomously, so every choice I would normally have asked you about is rec
 options and the reason. Nothing here changes the message contract; contract proposals are in their own
 section at the end and are **not** implemented.
 
-## 1. Pin map: none found, so one was derived (please check)
+## 1. Pin map: from the component sheet (replaces the one I had derived)
 
-The task says "pins exactly as the Pin Map in docs", and the plan mentions a "Pin Map tab", but there is
-no pin map in the repository, the docs or earlier sessions (searched for "pin map", GPIO numbers, TB6612,
-WS2812 and spreadsheet files). So I derived one from the ESP32 rules and kept it in one block at the
-top of `firmware/include/config.h` (section A), so replacing it with yours is a ten-line change.
-
-Rules followed: analog only on ADC1 (GPIO 32–39; ADC2 cannot be read while Wi-Fi is on); the four
-analog sensors on the input-only pins 34–39; no flash pins (6–11), no USB-serial pins (1, 3); no motor
-outputs on strapping pins (0, 2, 5, 12, 15) or on GPIO 14, which outputs a PWM signal during boot.
-
-| Function | GPIO | Notes |
-|---|---|---|
-| MQ-3 left AO | 36 (VP, ADC1_CH0) | via divider 10 k / 20 k (5 V → 3.33 V) |
-| MQ-3 right AO | 39 (VN, ADC1_CH3) | via divider 10 k / 20 k |
-| LDR | 34 (ADC1_CH6) | LDR from 3.3 V, 10 k to GND |
-| Battery | 35 (ADC1_CH7) | via divider 100 k / 33 k (8.4 V → 2.08 V) |
-| HC-SR04 trigger / echo | 18 / 19 | echo through a 1 k / 2 k divider (5 V → 3.3 V) |
-| TB6612 PWMA, AIN1, AIN2 (left) | 25, 26, 27 | |
-| TB6612 PWMB, BIN1, BIN2 (right) | 32, 33, 4 | |
-| TB6612 STBY | 23 | 10 k pull-down so the motors stay off until the firmware runs |
-| WS2812B data | 16 | 330 Ω series resistor |
-| Buzzer | 17 | |
-| Reward / punish buttons | 21 / 22 | to GND, internal pull-ups |
-| On-board LED | 2 | |
-| Encoders (optional) | 13 / 14 | |
-
-**If your Pin Map differs, edit section A of `config.h` and the table in `docs/hardware-bringup.md`;
-nothing else refers to pin numbers.**
+The first version used a pin map I derived because none was in the repository. It is now replaced by
+the pin map from the component sheet, kept in [`pin-map.md`](pin-map.md) with the list of differences
+and what each changed (section A of `config.h`, `BATTERY_DIVIDER` for the 100k/47k divider, reserved
+I²C pins, and the setup-portal gesture, decision 18).
 
 ## 2. Arduino-ESP32 2.0.17 (platform `espressif32@6.9.0`), not 3.x
 
@@ -159,7 +136,7 @@ firmware now checks the JSON grammar and UTF-8 exactly like Python's `json.loads
 members itself (integers exactly, decimals with `strtod`, the last duplicate key wins as in Python), and
 validates each schema by hand (types, ranges, enums, patterns, required and unknown keys). No heap.
 
-- **Parsers:** 1 447 payloads (480 valid; the rest have missing keys, extra keys, wrong types, values out
+- **Parsers:** 1 507 payloads (477 valid; the rest have NaN or infinities, missing keys, extra keys, wrong types, values out
   of range, wrong versions, bad patterns, broken JSON, invalid UTF-8, duplicate keys, `1.0` or `3e2` as
   integers and so on) get exactly the Python contract's verdict, and the valid ones decode to the same
   values.
@@ -169,13 +146,13 @@ validates each schema by hand (types, ranges, enums, patterns, required and unkn
 - An unknown `v` is counted separately from other invalid messages (contract section 6 rule 2); both
   reset the leave-fallback count, as in the simulator.
 
-## 14. Two Python-contract details mirrored, one deliberately not
+## 14. NaN and sender names: firmware and contract now agree exactly
 
-- Python's `re.search` with `$` also matches before one trailing newline, so `"src":"bot\n"` is valid
-  for the Python contract. The firmware mirrors it to agree exactly (proposal P2 below).
-- Python's `json.loads` accepts `NaN` and `Infinity`, and the schema then accepts `"l": NaN`. The robot
-  rejects them (a NaN wheel command is never right). This is the only verdict that differs; it is left
-  out of the vectors and listed as proposal P1.
+The first version found two places where the Python contract code was looser than JSON Schema intends:
+Python's `json.loads` accepted `NaN` / `Infinity` (so `{"l": NaN}` passed `cmd-motor`), and Python's
+`re` `$` let `"bot\n"` pass as a sender name. Both were approved and fixed in the contract code
+(contract revision 10). The firmware rejects both too, so its parsers now agree with the contract on
+every one of 1 507 vector payloads, including the NaN, Infinity and trailing-newline cases.
 
 ## 15. Task layout (plan step 6.5)
 
@@ -214,8 +191,10 @@ and for logs; no wall-clock time goes into a payload (contract section 2).
 ## 18. Setup portal
 
 Built on the Arduino `WebServer` and `DNSServer` (a captive portal), with no extra library. It opens when
-the robot has not joined Wi-Fi 30 s after power-on, when both buttons are held for 3 s at power-on, or
-from the console. It stores the Wi-Fi network and password, the broker address, port and TLS, and
+the robot has not joined Wi-Fi 30 s after power-on, when both buttons are held together for 3 s within
+the first minute after boot, or from the console. (Holding them at power-on, the first idea, is not
+safe with the buttons on GPIO 14 and 15: GPIO 14 outputs a signal and GPIO 15 is a strapping pin
+while the chip boots. Rewards are therefore sent on release, and a two-button chord sends neither.) It stores the Wi-Fi network and password, the broker address, port and TLS, and
 optionally a new MQTT password, in NVS (they then override `secrets.h`), and restarts. Passwords are never
 shown back. **The motors stay off while the portal is open**, although the contract would let a robot
 without a broker leave `boot` after 10 s and wander: someone is holding a phone next to it. Once Wi-Fi has
@@ -232,7 +211,8 @@ worked, losing it never opens the portal; the robot wanders in fallback as the c
   the PWM layer. `MOTOR_*_INVERT`, `MOTOR_TRIM_*` and `MOTOR_MIN_DUTY` in config.h are for bring-up.
 - **Mood colours** (plan 6.9): boot white pulse, cloud green, manual cyan, escape red, fallback amber
   (purple when also offline), sleep dim blue pulse, e-stop red blink, portal blue blink, battery cut dim
-  red, low battery an orange flash every 2 s. "Hungry" cannot be shown: see proposal P3.
+  red, low battery an orange flash every 2 s. The LED shows robot-side states only; hunger is shown on
+  the dashboard (see "Later ideas").
 - **Buzzer:** boot, connected, escape, Wi-Fi lost, low battery (every 30 s), cut-off, reward, punish,
   error, portal. Passive piezo by default (`BUZZER_PASSIVE`).
 - **Partition table `min_spiffs.csv`**: two 1.9 MB app slots (room for over-the-air updates, plan 6.14)
@@ -243,15 +223,18 @@ worked, losing it never opens the portal; the robot wanders in fallback as the c
   tasks; the console command `freeze` stops feeding it to test the restart (reset reason `watchdog`).
 - **Encoders** (optional, off by default) only count pulses for the console; there is no contract field.
 
-## Contract proposals (not implemented; for your decision)
+## Contract proposals
 
-- **P1. Reject NaN and Infinity in `Contract.decode`.** Python's `json.loads` accepts them by default, so
-  `{"l": NaN}` passes the `cmd-motor` schema (NaN fails no `minimum` or `maximum` check). Suggest
-  `json.loads(..., parse_constant=...)` raising, so every receiver agrees with the firmware.
-- **P2. Anchor the sender-name patterns exactly.** In Python, `^(bot|dash-[0-9a-f]{6})$` also matches
-  `"bot\n"` (`$` matches before a trailing newline). Suggest validating `src` with a full match (or
-  `\Z`), and noting in the contract that sender names never contain control characters.
-- **P3. Let the robot know the brain's mood if "hungry" should show on the LED.** Plan step 6.9 lists a
-  "hungry" colour, but hunger lives in `brain/state`, which the `esp32` user may not read (section 4).
-  Options: allow `esp32` to read `brain/state`, or add an optional mood field to `cmd/motor`. Without a
-  change the LED shows the robot's own states only.
+- **P1 (approved, done in contract revision 10).** `Contract.decode` rejects `NaN`, `Infinity` and
+  `-Infinity`; `validate` and `encode` refuse non-finite numbers.
+- **P2 (approved, done in contract revision 10).** Schema patterns match the whole string (JSON Schema
+  meaning), so `"bot\n"` is no longer the sender `bot`.
+- **P3 (dropped for now).** No "hungry" LED colour: the LED shows robot-side states only and the
+  dashboard shows hunger. Kept below as a later idea.
+
+## Later ideas
+
+- **Show the brain's mood on the robot's LED** (was P3). Hunger lives in `brain/state`, which the `esp32`
+  user may not read (contract section 4). It would need either read access to `brain/state` for `esp32`
+  or an optional mood field in `cmd/motor`, which is a contract change.
+- **I²C pins 21 / 22 are reserved** for an optional OLED or a VL53L0X distance sensor; no driver yet.

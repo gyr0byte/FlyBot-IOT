@@ -133,7 +133,7 @@ void test_unknown_version_is_reported_separately() {
     const char* p = "{\"v\":7,\"seq\":1,\"up\":1,\"l\":0,\"r\":0,\"ttl\":300,\"rs\":0}";
     TEST_ASSERT_EQUAL_INT((int)Parse::UnknownVersion, (int)parse_motor(p, std::strlen(p), m));
     const char* nan = "{\"v\":1,\"seq\":1,\"up\":1,\"l\":NaN,\"r\":0,\"ttl\":300,\"rs\":0}";
-    TEST_ASSERT_EQUAL_INT((int)Parse::Invalid, (int)parse_motor(nan, std::strlen(nan), m));  // stricter than Python
+    TEST_ASSERT_EQUAL_INT((int)Parse::Invalid, (int)parse_motor(nan, std::strlen(nan), m));  // as the contract (rev. 10)
 }
 
 // ---------------------------------------------------------------------------- builders -> file

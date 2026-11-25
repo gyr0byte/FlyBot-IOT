@@ -232,7 +232,7 @@ size_t build_ping(char* buf, size_t cap, const Header& h) {
 // text. This parser checks the whole document the same way and extracts the top-level members of the
 // object (every incoming message is a flat object). Numbers: integer tokens exactly (64-bit), others
 // with strtod (correctly rounded, like Python's float()). Duplicate keys: the last one wins, as in
-// Python. No heap. One deliberate difference: Python also accepts NaN / Infinity; the robot rejects them.
+// Python. No heap. NaN / Infinity are not JSON numbers and are rejected (contract revision 10).
 
 namespace {
 
@@ -506,12 +506,11 @@ bool str_is(const Member* m, const char* lit) {
     return m && m->kind == Member::Str && !m->s_long && m->s_len == n && std::memcmp(m->s, lit, n) == 0;
 }
 
-// Python re.search with "$": also matches just before one trailing "\n".
+// The whole string must match (contract revision 10: "bot\n" is not the sender "bot").
 bool src_match(const Member* m, bool allow_bot) {
     if (!m || m->kind != Member::Str || m->s_long) return false;
     size_t n = m->s_len;
     const char* c = m->s;
-    if (n && c[n - 1] == '\n') --n;
     if (allow_bot && n == 3 && std::memcmp(c, "bot", 3) == 0) return true;
     if (n != 11 || std::memcmp(c, "dash-", 5) != 0) return false;
     for (size_t i = 5; i < 11; ++i)

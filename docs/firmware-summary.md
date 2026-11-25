@@ -1,11 +1,13 @@
 # Firmware summary (Phase 6, 2026-11-25)
 
 Autonomous session: the ESP32 firmware is written, tested on the PC and compiled for `esp32dev`.
-**It has not been flashed: there is no hardware yet.** No contract changes (three proposals are listed
-below), nothing pushed, everything on D:. Every choice is in [firmware-decisions.md](firmware-decisions.md).
+**It has not been flashed: there is no hardware yet.** Nothing pushed, everything on D:. Every choice is in
+[firmware-decisions.md](firmware-decisions.md).
 
-**Please check first:** no Pin Map exists in the repository, so I derived one (decision 1). If yours
-differs, edit section A of `firmware/include/config.h`; nothing else refers to pin numbers.
+**Update (same day):** the pins now follow the component sheet ([pin-map.md](pin-map.md), with the
+differences from my first version and what they changed). Proposals P1 and P2 were approved and are in
+the contract code (contract revision 10); P3 was dropped (the LED shows robot-side states only, the
+dashboard shows hunger) and is kept as a later idea.
 
 ## What was built
 
@@ -26,7 +28,7 @@ differs, edit section A of `firmware/include/config.h`; nothing else refers to p
 | PC tests (`pio test -e native`) | **32 passed** (19 unit, 4 cross-check, 9 message) |
 | Cross-check with the Python edge module | **identical**: 17 edge vectors, **100 040 control steps** (4 simulator runs with a scripted fake brain, 10 scripted scenarios incl. every threshold hit exactly, 3 random), 15 803 sensing steps, 8 972 `round`/`sum` vectors, 6 000 stream operations. Motor outputs, states, events (every field), random-number use and counters match bit for bit; only the habituation level (via `exp()`) is compared within 1e-12, and 3 values differ in the last bit |
 | Cross-check self-test | 10 of 12 planted one-line bugs are caught; the other 2 change only an internal estimate that never affects an output (decision 12) |
-| Incoming messages vs the Python contract | **1 447 payloads**, same verdict and values (the robot additionally rejects NaN/Infinity, proposal P1) |
+| Incoming messages vs the Python contract | **1 507 payloads** (incl. NaN/Infinity and trailing-newline sender names), same verdict and values |
 | Outgoing messages vs the Python contract | **1 280 C++-built messages** valid, every number equal to Python's `round()` |
 | `config.h` vs `edge_config.py` | 49 thresholds, 1 documented difference (MQ-3 warm-up 60 s instead of the simulator's 5 s) |
 | esp32dev build | clean, **0 warnings** |
@@ -61,7 +63,7 @@ All of these are steps in [hardware-bringup.md](hardware-bringup.md), with a res
 
 ## Decisions (details in [firmware-decisions.md](firmware-decisions.md))
 
-1. Pin map derived (none in the repository): ADC1 only for analog, no flash/strapping/boot-PWM pins for outputs.
+1. Pin map from the component sheet ([pin-map.md](pin-map.md)); it replaced the one I had derived.
 2. Arduino-ESP32 2.0.17 (`espressif32@6.9.0`), not 3.x.
 3. PlatformIO in `D:\Tools\pio-venv`, `PLATFORMIO_CORE_DIR=D:\Tools\platformio`.
 4. `config.h` as typed constants, checked against `edge_config.py`; MQ-3 warm-up 60 s on the robot.
@@ -74,17 +76,17 @@ All of these are steps in [hardware-bringup.md](hardware-bringup.md), with a res
 11. Cross-check vectors recorded from the Python module and committed (3.5 MB).
 12. The cross-check was tested by planting bugs.
 13. Own strict JSON parser (ArduinoJson stores short decimals as 32-bit floats).
-14. Python's trailing-newline pattern quirk mirrored; NaN/Infinity rejected.
+14. NaN/Infinity rejected and sender names matched exactly, now the same in the contract (revision 10).
 15. Task layout; motor writes folded into the reflex task; ultrasonic at 25 Hz as in the simulator.
 16. Escape latency measured in microseconds on the robot.
 17. MQTT: esp-mqtt reconnects, last will rebuilt before each connect, Wi-Fi loss reported at once, NTP before TLS.
-18. Setup portal (captive, NVS); motors off while it is open.
+18. Setup portal (captive, NVS); motors off while it is open; opened by holding both buttons for 3 s in
+    the first minute after boot (not at power-on: the buttons are on boot-sensitive GPIO 14 / 15).
 19. Smaller choices: boot ID after the radio, offline rewards dropped, motor standby, mood colours,
     buzzer tunes, `min_spiffs.csv`, build without `secrets.h`, watchdog, encoders console-only.
 
-**Contract proposals, not implemented:** P1 reject NaN/Infinity in `Contract.decode`; P2 match `src`
-patterns exactly (Python's `$` accepts a trailing newline); P3 a way for the robot to show "hungry"
-(`esp32` may not read `brain/state`).
+**Contract proposals:** P1 (reject NaN/Infinity) and P2 (whole-string patterns) approved and done in
+contract revision 10; P3 ("hungry" on the LED) dropped for now and kept as a later idea.
 
 ## Commits (local, not pushed)
 

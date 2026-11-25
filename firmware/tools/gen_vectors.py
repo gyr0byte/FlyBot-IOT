@@ -734,6 +734,10 @@ def messages(seed: int):
             m = dict(base); m.pop(k); payloads.append(text(m))                    # missing key
             for bv in bad_values:
                 m = dict(base); m[k] = bv; payloads.append(text(m))               # wrong type / range / pattern
+        for k, val in base.items():                                                  # NaN / infinities (rev. 10)
+            if isinstance(val, (int, float)) and not isinstance(val, bool) and k != "v":
+                for token in ("NaN", "Infinity", "-Infinity"):
+                    payloads.append(text(base).replace(f'"{k}":{_json.dumps(val)}', f'"{k}":{token}', 1))
         m = dict(base); m["extra"] = 1; payloads.append(text(m))
         m = dict(base); m["v"] = base["v"] + 1; payloads.append(text(m))         # unknown version
         t = text(base)

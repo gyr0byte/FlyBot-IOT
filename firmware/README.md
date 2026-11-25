@@ -50,7 +50,7 @@ sim\.venv\Scripts\python -B firmware\tools\check_config.py     # config.h vs edg
 - `test_edge_unit`: hand-written tests of the edge logic, streams and sensing.
 - `test_crosscheck`: replays `test/vectors/` (recorded from the Python edge module) and requires identical
   results: 100 040 control steps, 15 803 sensing steps, 8 972 arithmetic and 6 000 stream vectors.
-- `test_messages`: 1 447 payloads against the Python contract's verdicts; writes 1 280 built messages to
+- `test_messages`: 1 507 payloads against the Python contract's verdicts; writes 1 280 built messages to
   `.pio/messages_out.txt` for `check_messages.py`; tests of the I/O helpers.
 
 Regenerate the vectors after any change to `sim/flybot_sim/edge.py`, `edge_sensing.py`, `edge_config.py`
