@@ -27,11 +27,6 @@ void setup() {
     } while (app::g_bid == 0);
     Serial.printf("boot id %lu\n", static_cast<unsigned long>(app::g_bid));
 
-    // Both buttons held for 3 s at power-on: open the setup portal.
-    int64_t t0 = app::now_ms();
-    while (hw::reward_pressed() && hw::punish_pressed() && app::now_ms() - t0 < PORTAL_HOLD_MS) delay(10);
-    if (app::now_ms() - t0 >= PORTAL_HOLD_MS) app::g_portal_request = true;
-
     app::start_tasks();
     Serial.println("type help for console commands");
 }

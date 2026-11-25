@@ -14,16 +14,12 @@ namespace flybot {
 namespace cfg {
 
 // ============================================================================ A. Pins (ESP32 DevKit, WROOM-32)
-// See docs/firmware-decisions.md (decision 1) and docs/hardware-bringup.md for the wiring.
-// Analog inputs are on ADC1 only (GPIO 32-39): ADC2 cannot be read while Wi-Fi is on.
-// Not used: GPIO 6-11 (flash), 1/3 (USB serial), 0/5/12/15 (strapping pins).
-constexpr int PIN_MQ3_LEFT     = 36;  // ADC1_CH0 (VP), input only. MQ-3 AO through a divider
-constexpr int PIN_MQ3_RIGHT    = 39;  // ADC1_CH3 (VN), input only. MQ-3 AO through a divider
-constexpr int PIN_LDR          = 34;  // ADC1_CH6, input only. LDR divider (optional)
-constexpr int PIN_BATTERY      = 35;  // ADC1_CH7, input only. Pack voltage through a divider
-
-constexpr int PIN_US_TRIG      = 18;  // HC-SR04 trigger (3.3 V is enough for the 5 V module)
-constexpr int PIN_US_ECHO      = 19;  // HC-SR04 echo, 5 V -> 3.3 V through a divider (see bring-up)
+// From the component sheet: docs/pin-map.md (wiring and power) and docs/hardware-bringup.md.
+// Analog inputs are all on ADC1 (GPIO 32-39): ADC2 cannot be read while Wi-Fi is on.
+constexpr int PIN_MQ3_LEFT     = 34;  // ADC1_CH6, input only. MQ-3 left AO via 10k/20k divider
+constexpr int PIN_MQ3_RIGHT    = 35;  // ADC1_CH7, input only. MQ-3 right AO via 10k/20k divider
+constexpr int PIN_LDR          = 36;  // ADC1_CH0 (VP), input only. LDR to 3.3 V, 10k to GND
+constexpr int PIN_BATTERY      = 39;  // ADC1_CH3 (VN), input only. Pack via 100k/47k divider
 
 constexpr int PIN_MOTOR_PWMA   = 25;  // TB6612 PWMA (left motor speed)
 constexpr int PIN_MOTOR_AIN1   = 26;  // TB6612 AIN1
@@ -31,16 +27,22 @@ constexpr int PIN_MOTOR_AIN2   = 27;  // TB6612 AIN2
 constexpr int PIN_MOTOR_PWMB   = 32;  // TB6612 PWMB (right motor speed)
 constexpr int PIN_MOTOR_BIN1   = 33;  // TB6612 BIN1
 constexpr int PIN_MOTOR_BIN2   = 4;   // TB6612 BIN2
-constexpr int PIN_MOTOR_STBY   = 23;  // TB6612 STBY (fit a 10 k pull-down: motors off until the firmware runs)
+constexpr int PIN_MOTOR_STBY   = 23;  // TB6612 STBY, 10k pull-down: motors off until the firmware runs
 
-constexpr int PIN_MOOD_LED     = 16;  // WS2812B data in (through a 330 ohm resistor)
-constexpr int PIN_BUZZER       = 17;  // buzzer (passive: driven with a tone; active: on/off)
-constexpr int PIN_BTN_REWARD   = 21;  // "good" button to GND (internal pull-up)
-constexpr int PIN_BTN_PUNISH   = 22;  // "bad" button to GND (internal pull-up)
-constexpr int PIN_STATUS_LED   = 2;   // on-board blue LED: connection status
+constexpr int PIN_US_TRIG      = 18;  // HC-SR04P trigger
+constexpr int PIN_US_ECHO      = 19;  // HC-SR04P echo (3.3 V module: no divider; 1k/2k only for a 5 V HC-SR04)
 
-constexpr int PIN_ENC_LEFT     = 13;  // optional wheel encoder, left (see ENCODERS_ENABLED)
-constexpr int PIN_ENC_RIGHT    = 14;  // optional wheel encoder, right
+constexpr int PIN_ENC_LEFT     = 16;  // optional wheel encoder, left (LM393 module; see ENCODERS_ENABLED)
+constexpr int PIN_ENC_RIGHT    = 17;  // optional wheel encoder, right
+
+constexpr int PIN_I2C_SDA      = 21;  // reserved: optional OLED / VL53L0X (no driver in the firmware yet)
+constexpr int PIN_I2C_SCL      = 22;  // reserved
+
+constexpr int PIN_MOOD_LED     = 13;  // WS2812B data in (330 ohm series)
+constexpr int PIN_BUZZER       = 5;   // buzzer via 2N2222 (1k base); strapping pin, outputs PWM briefly at boot
+constexpr int PIN_BTN_REWARD   = 14;  // "good" button to GND (internal pull-up); outputs a signal at boot
+constexpr int PIN_BTN_PUNISH   = 15;  // "bad" button to GND (internal pull-up); strapping pin
+constexpr int PIN_STATUS_LED   = 2;   // on-board LED: connection status
 
 // ============================================================================ B. Edge thresholds (= edge_config.py)
 // --- boot and mode (contract section 5.1) ---
@@ -125,7 +127,7 @@ constexpr int32_t TASK_WDT_TIMEOUT_S      = 5;       // hardware (task) watchdog
 constexpr int     ADC_OVERSAMPLE          = 8;       // readings averaged per sample
 // Divider ratio = (R_top + R_bottom) / R_bottom: pin voltage x ratio = sensor (or pack) voltage.
 constexpr double  MQ3_DIVIDER             = (10.0 + 20.0) / 20.0;   // 10 k over 20 k: 5 V -> 3.33 V
-constexpr double  BATTERY_DIVIDER         = (100.0 + 33.0) / 33.0;  // 100 k over 33 k: 8.4 V -> 2.08 V
+constexpr double  BATTERY_DIVIDER         = (100.0 + 47.0) / 47.0;  // 100 k over 47 k: 8.4 V -> 2.69 V, 6.4 V -> 2.05 V
 constexpr double  BATTERY_CAL             = 1.00;    // trim against a multimeter (bring-up step 3)
 
 // --- light sensor (LDR from 3.3 V, 10 k to GND: brighter = higher voltage) ---
@@ -133,7 +135,7 @@ constexpr bool    LDR_FITTED              = true;    // false: sensors.lt is nul
 constexpr double  LDR_DARK_V              = 0.10;    // pin voltage in darkness   -> lt 0.0
 constexpr double  LDR_BRIGHT_V            = 2.80;    // pin voltage in room light -> lt 1.0
 
-// --- ultrasonic (HC-SR04) ---
+// --- ultrasonic (HC-SR04P, 3.3 V) ---
 constexpr int32_t US_TIMEOUT_US           = 25000;   // no echo within this: null (about 4.3 m)
 constexpr double  US_CM_PER_US            = 0.01715; // speed of sound 343 m/s, halved (round trip)
 constexpr double  US_MIN_CM               = 2.0;     // contract range of sensors.d
@@ -151,11 +153,12 @@ constexpr double  MOTOR_MIN_DUTY          = 0.00;    // smallest duty that turns
 // --- RGB LED and buzzer ---
 constexpr int     MOOD_LED_COUNT          = 1;
 constexpr uint8_t MOOD_LED_BRIGHTNESS      = 60;      // 0-255
-constexpr bool    BUZZER_PASSIVE          = true;    // passive piezo (tone); false: active buzzer (on/off)
+constexpr bool    BUZZER_PASSIVE          = true;    // passive piezo (tone through the 2N2222); false: active buzzer
 
 // --- buttons ---
 constexpr int32_t BUTTON_DEBOUNCE_MS      = 30;
-constexpr int32_t PORTAL_HOLD_MS          = 3000;    // both buttons held this long at power-on: setup portal
+constexpr int32_t PORTAL_HOLD_MS          = 3000;    // both buttons held this long ...
+constexpr int32_t PORTAL_HOLD_WINDOW_MS   = 60000;   // ... within the first minute after boot: setup portal
 
 // --- encoders (optional; not on the wire, console only) ---
 constexpr bool    ENCODERS_ENABLED        = false;

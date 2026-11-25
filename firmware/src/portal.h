@@ -1,5 +1,5 @@
-// Setup portal (plan step 6.12): if the robot cannot join its Wi-Fi (or both buttons are held at
-// power-on, or the console says "portal"), it opens its own hotspot "FlyBot-Setup-xxxx". A phone that
+// Setup portal (plan step 6.12): if the robot cannot join its Wi-Fi (or both buttons are held for 3 s in
+// the first minute after boot, or the console says "portal"), it opens its own hotspot "FlyBot-Setup-xxxx". A phone that
 // joins it is sent to a page (captive portal) to pick a network, enter its password and set the
 // broker address, port and TLS. Saved to flash; the robot restarts with the new settings.
 // Motors stay off while the portal is open.

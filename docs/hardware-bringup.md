@@ -11,9 +11,8 @@ The serial console runs at 115200 baud; type `help` for the commands used below.
 
 ## 0. Before you start
 
-- [ ] **Check the pin map.** No pin map was found in the repository, so the firmware uses the one in
-      [`firmware-decisions.md`](firmware-decisions.md) (decision 1), repeated below. If your wiring plan
-      differs, change section A of `firmware/include/config.h` first. Nothing else refers to pin numbers.
+- [ ] **Check the wiring against [`pin-map.md`](pin-map.md)** (from the component sheet; the firmware's
+      copy is section A of `firmware/include/config.h`).
 - [ ] Copy `firmware\include\secrets.example.h` to `firmware\include\secrets.h` and fill in your Wi-Fi,
       the laptop's IP address and `MQTT_ESP32_PASS` from the repository's `.env`. Never commit `secrets.h`.
 - [ ] PlatformIO stays on D: (set in every new PowerShell window):
@@ -25,25 +24,27 @@ The serial console runs at 115200 baud; type `help` for the commands used below.
 
 | Part | Connection | ESP32 GPIO |
 |---|---|---|
-| MQ-3 left, AO | divider 10 kΩ (top) / 20 kΩ (bottom): 5 V → 3.33 V max | 36 (VP) |
-| MQ-3 right, AO | divider 10 kΩ / 20 kΩ | 39 (VN) |
+| MQ-3 left, AO | divider 10 kΩ (top) / 20 kΩ (bottom): 5 V → 3.33 V max | 34 |
+| MQ-3 right, AO | divider 10 kΩ / 20 kΩ | 35 |
 | MQ-3 VCC / GND | 5 V rail / GND (each heater draws about 150 mA) | – |
-| LDR | LDR from 3.3 V to the pin, 10 kΩ from the pin to GND | 34 |
-| Battery | divider 100 kΩ (top) / 33 kΩ (bottom) from the pack + | 35 |
-| HC-SR04 VCC / GND | 5 V / GND | – |
-| HC-SR04 Trig | direct (3.3 V is enough) | 18 |
-| HC-SR04 Echo | divider 1 kΩ (top) / 2 kΩ (bottom): 5 V → 3.3 V | 19 |
+| LDR | LDR from 3.3 V to the pin, 10 kΩ from the pin to GND | 36 (VP) |
+| Battery | divider 100 kΩ (top) / 47 kΩ (bottom) from the pack + (after the BMS) | 39 (VN) |
+| HC-SR04P VCC / GND | 3.3 V / GND | – |
+| HC-SR04P Trig / Echo | direct (a 5 V HC-SR04 would need a 1 kΩ / 2 kΩ divider on Echo) | 18 / 19 |
 | TB6612 PWMA, AIN1, AIN2 | left motor | 25, 26, 27 |
 | TB6612 PWMB, BIN1, BIN2 | right motor | 32, 33, 4 |
 | TB6612 STBY | plus a 10 kΩ pull-down to GND (motors off until the firmware runs) | 23 |
-| TB6612 VM / VCC / GND | battery + / 3.3 V / GND | – |
-| WS2812B DIN | through 330 Ω; LED powered from 5 V | 16 |
-| Buzzer | + to the pin, − to GND (passive piezo; set `BUZZER_PASSIVE` false for an active one) | 17 |
-| Reward / punish buttons | button to GND (internal pull-ups) | 21 / 22 |
+| TB6612 VM / VCC / GND | pack after BMS, fuse and switch / 3.3 V / GND | – |
+| WS2812B DIN | through 330 Ω; LED powered from 5 V | 13 |
+| Buzzer | 2N2222 low-side switch, 1 kΩ base resistor, buzzer on 5 V (passive piezo; `BUZZER_PASSIVE` false for an active one) | 5 |
+| Reward / punish buttons | button to GND (internal pull-ups) | 14 / 15 |
 | On-board LED | already on the board | 2 |
-| Encoders (optional) | `ENCODERS_ENABLED` in config.h | 13 / 14 |
+| Encoders (optional, LM393 on 3.3 V) | `ENCODERS_ENABLED` in config.h | 16 / 17 |
+| I²C (optional OLED / VL53L0X) | reserved, no driver yet | 21 / 22 |
 
-Power: 2S 18650 (6.0–8.4 V) → buck converter 5.0 V → ESP32 `5V`/`VIN` pin, MQ-3s, HC-SR04, WS2812B.
+Power: 2S 18650 (6.0–8.4 V) → BMS, fuse, switch → buck converter 5.0 V → ESP32 `VIN`. The 3V3 rail feeds
+the TB6612 VCC, the encoder modules, the LDR divider and the HC-SR04P; the 5 V rail feeds the MQ-3s, the
+WS2812B and the buzzer.
 The TB6612 motor supply (VM) comes straight from the pack. **All grounds are joined.**
 
 ---
@@ -75,7 +76,7 @@ The TB6612 motor supply (VM) comes straight from the pack. **All grounds are joi
 
 ## 3. Power from the buck converter, battery reading
 
-- [ ] Wire the buck output to `5V`/`VIN` and GND, and the battery divider to GPIO 35. Power from the pack.
+- [ ] Wire the buck output to `5V`/`VIN` and GND, and the battery divider to GPIO 39. Power from the pack.
 - [ ] `s` prints the sensors twice a second. Compare `bat=` with the multimeter across the pack.
 - [ ] If they differ by more than 0.05 V, set `BATTERY_CAL` in config.h to (multimeter ÷ printed) and
       reflash. Check at a full (8.4 V) and a half-empty (7.4 V) pack.
@@ -86,7 +87,7 @@ The TB6612 motor supply (VM) comes straight from the pack. **All grounds are joi
 
 This is the project's most important early check: can two MQ-3s tell left from right?
 
-- [ ] Wire both MQ-3 modules (VCC to 5 V, AO through their dividers to GPIO 36 / 39). Mount them at their
+- [ ] Wire both MQ-3 modules (VCC to 5 V, AO through their dividers to GPIO 34 / 35). Mount them at their
       final positions, about 12 cm apart.
 - [ ] **First use only:** let the heaters burn in for at least a few hours (the datasheet recommends
       24–48 h); readings drift a lot before that.
@@ -106,7 +107,7 @@ This is the project's most important early check: can two MQ-3s tell left from r
 
 ## 5. Ultrasonic distance
 
-- [ ] Wire the HC-SR04 (echo through its divider). With `s` running, hold a book at 10, 30, 60, 100 and
+- [ ] Wire the HC-SR04P (3.3 V, no divider). With `s` running, hold a book at 10, 30, 60, 100 and
       200 cm (ruler). `d` must be within about 2 cm (and 5 % beyond 1 m).
 - [ ] Point it at open space (more than 4 m): `d=null` (no echo).
 - [ ] Wave a pencil through the beam once: the filtered `d` must not jump (the median rejects single
@@ -117,7 +118,7 @@ This is the project's most important early check: can two MQ-3s tell left from r
 ## 6. Light sensor
 
 - [ ] `s` in normal room light, then with the LDR covered by a finger, then under a phone torch.
-- [ ] Measure the voltage on GPIO 34 with the multimeter, covered and in room light, and put the two
+- [ ] Measure the voltage on GPIO 36 with the multimeter, covered and in room light, and put the two
       values in `LDR_DARK_V` and `LDR_BRIGHT_V` in config.h, so that covered reads about 0.0 and room light
       about 1.0. Without an LDR, set `LDR_FITTED` false: `lt` is then null.
 
@@ -128,8 +129,11 @@ This is the project's most important early check: can two MQ-3s tell left from r
 - [ ] `buzz boot`, `buzz escape`, `buzz low`: each plays (passive piezo: tones; active buzzer: beeps).
 - [ ] The RGB LED is white and pulsing during warm-up, then shows the state (colours in
       `firmware-decisions.md`, decision 19). Too bright? Lower `MOOD_LED_BRIGHTNESS`.
-- [ ] Press each button: without MQTT the buzzer plays the error tone (a reward needs the broker).
-- [ ] Hold both buttons while powering on for 3 s: the portal opens (blue blinking LED). Reset.
+- [ ] Press and release each button: without MQTT the buzzer plays the error tone (a reward needs the
+      broker; it is sent on release).
+- [ ] Within the first minute after a reset, hold both buttons for 3 s: the portal opens (blue blinking
+      LED); no reward or punishment is sent for the chord. Reset. (Do not hold the buttons while powering
+      on: GPIO 14 and 15 must not be held low while the chip boots.)
 
 **Done when:** every sound plays, the LED changes with the state, both buttons respond.
 
@@ -175,7 +179,7 @@ This is the project's most important early check: can two MQ-3s tell left from r
 
 ## 10. Setup portal (plan step 6.12)
 
-- [ ] Hold both buttons at power-on (or type `portal`). Join `FlyBot-Setup-xxxx` from a phone with the
+- [ ] Hold both buttons for 3 s within a minute of a reset (or type `portal`). Join `FlyBot-Setup-xxxx` from a phone with the
       portal password from `secrets.h`; the setup page opens (or browse to `http://192.168.4.1/`).
 - [ ] Change the broker address to something wrong, save: the robot restarts and keeps trying
       (`[mqtt] connecting`). Open the portal again and put the right address back.

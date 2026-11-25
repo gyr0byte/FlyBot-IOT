@@ -235,7 +235,8 @@ void ui_task(void*) {
     buzzer.play(Tune::Boot, now_ms());
     State last_st = State::Boot;
     bool last_mqtt = false, last_low = false, last_cut = false, last_portal = false;
-    int64_t next_low_beep = 0;
+    int64_t next_low_beep = 0, chord_since = 0;
+    bool chord = false;
     for (;;) {
         int64_t now = now_ms();
         Shared s;
@@ -259,17 +260,30 @@ void ui_task(void*) {
         last_cut = s.battery_cut;
         last_portal = s.portal;
 
-        // buttons -> reward topic (src "btn")
-        bool good = reward.update(hw::reward_pressed(), now);
-        bool bad = punish.update(hw::punish_pressed(), now);
-        if (good || bad) {
+        // buttons -> reward topic (src "btn"), sent on release. Both buttons together are a chord, not a
+        // reward: held for 3 s within the first minute after boot it opens the setup portal. (The buttons
+        // are on GPIO 14 / 15, which must not be held low while the chip boots, so no power-on gesture.)
+        bool was_good = reward.pressed(), was_bad = punish.pressed();
+        reward.update(hw::reward_pressed(), now);
+        punish.update(hw::punish_pressed(), now);
+        bool both = reward.pressed() && punish.pressed();
+        if (both) {
+            chord = true;
+            if (!chord_since) chord_since = now;
+            if (now - chord_since >= PORTAL_HOLD_MS && now < PORTAL_HOLD_WINDOW_MS && !s.portal) g_portal_request = true;
+        } else {
+            chord_since = 0;
+        }
+        bool released_good = was_good && !reward.pressed(), released_bad = was_bad && !punish.pressed();
+        if ((released_good || released_bad) && !chord) {
             Outgoing o{};
             o.kind = Outgoing::Reward;
-            o.r = good ? 1 : -1;
+            o.r = released_good ? 1 : -1;
             o.up = now;
-            if (s.mqtt_up && post(o)) buzzer.play(good ? Tune::Reward : Tune::Punish, now);
+            if (s.mqtt_up && post(o)) buzzer.play(released_good ? Tune::Reward : Tune::Punish, now);
             else buzzer.play(Tune::Error, now);
         }
+        if (!reward.pressed() && !punish.pressed()) chord = false;
 
         hw::led(mood_color(MoodInput{s.st, s.m, s.mqtt_up, low, s.battery_cut, s.portal}, now));
         // on-board LED: on = MQTT connected, slow blink = Wi-Fi only, fast blink = no Wi-Fi
