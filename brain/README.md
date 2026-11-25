@@ -54,7 +54,7 @@ Without the flag, a reboot keeps state and the random stream simply continues.
 
 Don't run `sim\tools\drive.py` at the same time: it also logs in as `brain`.
 
-## What it does on the wire (contract revision 9)
+## What it does on the wire (contract revision 10)
 
 - **One control tick per `sensors` message** (§7.1). It answers with `cmd/motor`: `rs` = that
   `seq`, `ttl` 300 ms.

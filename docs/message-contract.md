@@ -1,6 +1,6 @@
 # FlyBot MQTT message contract
 
-**Contract revision:** 9 (2026-11-25). Each message type's current `v` is in the §1 table.
+**Contract revision:** 10 (2026-11-25). Each message type's current `v` is in the §1 table.
 
 This is the source of truth for every message between the FlyBot programs. Programs only
 talk through MQTT. If code and this document disagree, the code is wrong. The
@@ -686,7 +686,12 @@ the firmware and the simulator must implement them exactly.
 
 Every receiver (robot, brain, logger, dashboard, bot) applies these rules.
 
-1. **Validate** every message against its schema. Invalid → drop, count per topic, log.
+1. **Validate** every message against its schema. Invalid → drop, count per topic, log. Two rules
+   every implementation must follow (revision 10): `NaN`, `Infinity` and `-Infinity` are not JSON
+   numbers, so a payload containing them is invalid (and no sender may produce them); and a `pattern`
+   (sender names, firmware version, names in `brain/control`) must match the **whole** string, as JSON
+   Schema defines it: `"bot\n"` is not the sender `bot`. (Python's `re` `$` also matches before a
+   trailing newline; the contract code compensates.)
 2. **Unknown version:** a `v` the receiver does not know → drop, count separately, log.
 3. **Streams.** Sequence numbers are tracked per stream. On topics with `src` (`cmd/manual`,
    `cmd/mode`, `reward`, `brain/control`, `brain/sleep`) a stream is **topic + sender name**. Each
@@ -839,3 +844,4 @@ local and cloud setups and compared with the on-robot escape reflex time (`event
 | 7 | 2026-11-24 | Lockstep (§7.1 (5)): the simulator's wait for `cmd/motor` is 100 ms for interactive runs and 2000 ms for batch and experiment runs, so host stalls cannot change batch results; timeouts are counted per trial. No payload or `v` changes. |
 | 8 | 2026-11-24 | Habituation visibility and state control: `events` → `v = 3` (`escape` sent for every looming detection, with `resp` and `hab`; `lat` only when `resp` > 0); `status` → `v = 3` (`hab`); `brain/state` → `v = 5` (`hab`); `brain/control` → `v = 4` (command `state` with `hun` / `fear`). Lesion `hab` answers `ack.ok = false` (habituation is robot-side). Habituation is one level (wording settled during step 5.8: a clearly faster stimulus dishabituates, no per-class levels). |
 | 9 | 2026-11-25 | Backlog visibility: `brain/status` → `v = 3` with `lag`, the number of inbound messages the brain has received but not yet processed; crossing the brain's warning threshold publishes `brain/status` immediately. |
+| 10 | 2026-11-25 | Stricter validation, no message version changes (§6 rule 1): `NaN`, `Infinity` and `-Infinity` are invalid (Python's `json` accepted them, so `{"l": NaN}` passed `cmd-motor`); schema patterns match the whole string (Python's `re` let `"bot\n"` pass as a sender name). Implemented in `contract/flybot_contract` with tests; the firmware already behaves this way. |
