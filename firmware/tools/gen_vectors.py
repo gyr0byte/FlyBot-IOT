@@ -694,6 +694,84 @@ def scripted_sensing(cfg: EdgeConfig):
     st.save()
 
 
+def messages(seed: int):
+    """Incoming payloads (valid and broken) with the Python contract's verdict, for the C++ parsers.
+    Lines: P <topic> <ok|invalid> <payload as hex>; after an ok one: V <decoded fields>."""
+    import json as _json
+    from flybot_contract import ContractError
+    rng = random.Random(seed)
+
+    def valid(topic):
+        seq, up = rng.choice([0, 1, rng.randint(0, 2 ** 32 - 1), 4294967295]), rng.choice(
+            [0, rng.randint(0, 10 ** 9), 9007199254740991])
+        if topic == "cmd/motor":
+            return {"v": 1, "seq": seq, "up": up, "l": round(rng.uniform(-1, 1), 2), "r": rng.choice([-1, 1, 0, 0.5, -0.33]),
+                    "ttl": rng.choice([50, 300, 1000, rng.randint(50, 1000)]), "rs": rng.randint(0, 2 ** 32 - 1)}
+        if topic == "cmd/manual":
+            return {"v": 2, "seq": seq, "up": up, "l": round(rng.uniform(-1, 1), 2), "r": round(rng.uniform(-1, 1), 2),
+                    "ttl": rng.choice([50, 300, 1000]), "rs": rng.randint(0, 99999),
+                    "src": "dash-" + "".join(rng.choice("0123456789abcdef") for _ in range(6))}
+        if topic == "cmd/mode":
+            return {"v": 2, "seq": seq, "up": up, "m": rng.choice(["auto", "manual", "estop"]),
+                    "src": rng.choice(["bot", "dash-3fa2c1", "dash-000000"])}
+        if topic == "cmd/sleep":
+            return {"v": 1, "seq": seq, "up": up, "s": rng.random() < 0.5, "why": rng.choice(["dark", "light", "user"])}
+        return {"v": 1, "seq": seq, "up": up, "ps": rng.randint(0, 2 ** 32 - 1), "pu": rng.randint(0, 9007199254740991)}
+
+    def text(m):
+        return _json.dumps(m, separators=(",", ":"))
+
+    bad_values = [None, True, False, "1", [], {}, -1, 0.5, 1.5, -0.0, 1e300, 4294967296, 9007199254740992,
+                  2, -2, 49, 1001, 300.0, 3e2, 1.0, -1.0000001, 1.0000001, "dash-3FA2C1", "dash-3fa2c", "bot\n",
+                  "dash-3fa2c1\n", "dash-3fa2c1x", "BOT", "btn", "auto ", "AUTO", "dark", "nap"]
+    lines = []
+    for topic in ("cmd/motor", "cmd/manual", "cmd/mode", "cmd/sleep", "pong"):
+        payloads = []
+        for _ in range(60):
+            payloads.append(text(valid(topic)))
+        base = valid(topic)
+        for k in list(base):
+            m = dict(base); m.pop(k); payloads.append(text(m))                    # missing key
+            for bv in bad_values:
+                m = dict(base); m[k] = bv; payloads.append(text(m))               # wrong type / range / pattern
+        m = dict(base); m["extra"] = 1; payloads.append(text(m))
+        m = dict(base); m["v"] = base["v"] + 1; payloads.append(text(m))         # unknown version
+        t = text(base)
+        payloads += [t + " ", " " + t, t + "x", t[:-1], "[" + t + "]", "", "null", "1", '"x"', t.replace('"', "'", 2),
+                     t.replace(":", " : "), t.replace(",", " ,\n "), t.replace('"seq":', '"seq":0', 1),
+                     t[:-1] + ',"v":' + str(base["v"]) + "}", t[:-1] + ',"seq":-1}', "{" + t[1:].replace("{", "", 1),
+                     t.replace('"v"', '"\\u0076"'), t.replace('"v":', '"v\\u0000":'), t.encode().hex()[:10],
+                     t.replace("}", "}}"), t + "\n", "﻿" + t, t.replace('"up":', '"up": 0', 1) if False else t]
+        for p in payloads:
+            raw = p.encode("utf-8")
+            try:
+                msg = C.decode(topic, raw)
+                ok = True
+            except ContractError:
+                ok = False
+            lines.append(f"P {topic} {'ok' if ok else 'invalid'} {raw.hex()}")
+            if ok:
+                if topic in ("cmd/motor", "cmd/manual"):
+                    v = f"V {msg['seq']} {msg['up']} {d(msg['l'])} {d(msg['r'])} {int(msg['ttl'])} {int(msg['rs'])}"
+                    if topic == "cmd/manual":
+                        v += " " + msg["src"].encode().hex()
+                elif topic == "cmd/mode":
+                    v = f"V {int(msg['seq'])} {int(msg['up'])} {msg['m']} {msg['src'].encode().hex()}"
+                elif topic == "cmd/sleep":
+                    v = f"V {int(msg['seq'])} {int(msg['up'])} {b(msg['s'])} {msg['why']}"
+                else:
+                    v = f"V {int(msg['seq'])} {int(msg['up'])} {int(msg['ps'])} {int(msg['pu'])}"
+                lines.append(v)
+    # invalid UTF-8 and a raw control character inside a string
+    for topic in ("cmd/mode",):
+        lines.append(f"P {topic} invalid {(b'{\"v\":2,\"seq\":1,\"up\":1,\"m\":\"auto\",\"src\":\"b\\xffot\"}').hex()}")
+        lines.append(f"P {topic} invalid {(b'{\"v\":2,\"seq\":1,\"up\":1,\"m\":\"auto\",\"src\":\"b\\x01ot\"}').hex()}")
+    path = OUT / "messages.txt"
+    path.write_text("\n".join(lines) + "\n", encoding="ascii", newline="\n")
+    n_ok = sum(1 for line in lines if line.startswith("P ") and " ok " in line)
+    print(f"  {path.name}: {sum(1 for line in lines if line.startswith('P '))} payloads ({n_ok} valid)")
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     for old in OUT.glob("*.txt"):
@@ -702,6 +780,7 @@ def main() -> int:
     print("arithmetic and streams:")
     arithmetic(11)
     streams(12)
+    messages(13)
     print("scripted edge scenarios:")
     cfg = EdgeConfig()
     scripted(cfg)

@@ -16,6 +16,7 @@ edge_sim_seek.txt
 edge_sim_threat.txt
 edge_sleep.txt
 edge_wander.txt
+messages.txt
 sensing_scripted.txt
 sensing_sim_habituation.txt
 sensing_sim_obstacles.txt
